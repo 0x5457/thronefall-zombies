@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#17291f" />
+  <title>PINEFALL · 松林余烬</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2396ab6a' d='M32 3 12 29h11L7 47h20v14h10V47h20L41 29h11Z'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <main id="app">
+    <canvas id="world" aria-label="松林营地三维游戏场景"></canvas>
+    <div class="vignette"></div>
+    <header class="topbar">
+      <div class="brand"><svg viewBox="0 0 40 44" aria-hidden="true"><path d="M20 2 8 20h7L4 35h13v7h6v-7h13L25 20h7Z"/></svg><div><h1>PINEFALL<span>松林余烬</span></h1><p>A LITTLE LIGHT IN THE WILD</p></div></div>
+      <div class="day-panel"><span id="phase-icon">☀</span><div><strong id="day-label">DAY 01</strong><span id="phase-label">午后 · 营地建设</span></div><div class="day-track"><i id="day-progress"></i></div></div>
+      <div class="tools"><button id="sound" title="环境音开关" aria-label="开启环境音" aria-pressed="false">♫</button><button id="photo" title="隐藏界面 · H" aria-label="隐藏界面">⌗</button><button id="pause" title="暂停 · P" aria-label="暂停" aria-pressed="false">Ⅱ</button><button id="help" title="操作说明" aria-label="操作说明">?</button></div>
+    </header>
+    <aside class="camp-status"><div class="eyebrow"><span class="live-dot"></span> BLACK PINE NATIONAL FOREST</div><h2>最后一处营火<span>CAMPSITE 07 / 远离喧嚣，守住微光。</span></h2><div class="resources"><span><i class="wood-icon">▰</i><b id="wood">80</b><small>木材</small></span><span><i class="heart-icon">◇</i><b id="health">100</b><small>营地</small></span><span><i class="kill-icon">✧</i><b id="kills">0</b><small>击退</small></span></div><div class="health-track"><i id="health-bar"></i></div></aside>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="world-label" class="world-label"></div>
+    <section class="bottom-ui">
+      <div class="field-note"><span class="eyebrow">FIELD NOTES — <b id="note-number">01</b></span><h3 id="note-title">天黑之前，先安个家。</h3><p id="note-body">在空地建起防线。松林深处，并不只有风声。</p><button id="next-phase">迎接夜晚 <span>→</span></button></div>
+      <div class="build-wrap"><div class="build-heading"><span>营 地 建 设</span><small id="build-hint">选择建筑 · 点击空地放置</small></div><div class="build-bar">
+        <button class="build-card" data-build="fence" title="木栅栏：阻挡敌人，消耗 15 木材"><kbd>1</kbd><svg viewBox="0 0 64 48"><path d="M9 15h46v6H9zm0 14h46v6H9z" fill="#9e7953"/><path d="m13 9 4-5 4 5v34h-8zm15 0 4-5 4 5v34h-8zm15 0 4-5 4 5v34h-8z" fill="#c2a16e"/></svg><strong>木栅栏</strong><span>▰ 15</span></button>
+        <button class="build-card" data-build="tower" title="瞭望塔：自动攻击附近敌人，消耗 35 木材"><kbd>2</kbd><svg viewBox="0 0 64 48"><path d="M18 19h5l-3 25h-5zm23 0h5l3 25h-5zM20 27l24 12-2 3-24-12z" fill="#b89967"/><path d="M12 13h40v8H12zm4-9h3v13h-3zm29 0h3v13h-3zM16 7h32v3H16z" fill="#d7b77b"/><path d="M30 2h5v11h-5z" fill="#b66a45"/></svg><strong>瞭望塔</strong><span>▰ 35</span></button>
+        <button class="build-card" data-build="lantern" title="营地灯：照亮森林并减缓附近敌人，消耗 10 木材"><kbd>3</kbd><svg viewBox="0 0 64 48"><path d="M23 43h17v3H23zm7-36h4v37h-4zm2-3h15v3H32zm12 1h2v9h-2z" fill="#b89967"/><path d="M40 14h10v13H40z" fill="#efd48d"/><path d="M39 12h12v3H39zm0 15h12v3H39z" fill="#665a42"/></svg><strong>营地灯</strong><span>▰ 10</span></button>
+      </div></div>
+      <div class="controls-hint"><div><kbd>W</kbd><span> / </span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span> 移动</span></div><p>靠近敌人自动攻击 · <kbd>E</kbd> 收集木材</p><p>滚轮缩放 · <kbd>H</kbd> 纯净画面</p><span class="edition">A THREE.JS WOODLAND DIORAMA</span></div>
+    </section>
+    <div id="photo-hint" hidden>H 恢复界面 · N 切换昼夜</div>
+    <dialog id="help-dialog"><button class="close" aria-label="关闭">×</button><span class="eyebrow">WELCOME TO THE WOODS</span><h2>守住这一点温暖。</h2><p>白天探索松林、收集木材，沿营地外围建造防御。入夜后，抵挡从小径涌来的不速之客，保护房车。</p><dl><dt>WASD / 方向键</dt><dd>移动角色，靠近敌人自动射击</dd><dt>E</dt><dd>在倒木附近收集木材</dd><dt>1 / 2 / 3</dt><dd>选择建筑，点击空地建造</dd><dt>R / Esc</dt><dd>旋转建筑 / 取消建造</dd><dt>N / P / H</dt><dd>切换昼夜 / 暂停 / 隐藏界面</dd><dt>鼠标滚轮</dt><dd>拉近或拉远镜头</dd></dl><button id="help-start" class="primary">回到营火旁 →</button></dialog>
+    <dialog id="end-dialog"><span class="eyebrow">THE FIRE WILL BURN AGAIN</span><h2>余烬尚未冷却。</h2><p id="end-text"></p><button id="restart" class="primary">重新扎营 →</button></dialog>
+    <div id="loading"><div class="loading-tree">♠</div><h2>PINEFALL</h2><p>正在走进松林…</p></div>
+  </main>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
