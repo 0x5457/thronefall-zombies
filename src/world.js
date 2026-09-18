@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MAP } from './map.js';
 
 export function seeded(seed = 731) {
   return () => { seed = (Math.imul(1664525, seed) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
@@ -28,28 +29,28 @@ function beam(parent, color, a, b, width) {
 export const shore = z => 24 - .19 * z + Math.sin(z * .15) * 2.2 + Math.sin(z * .41) * .6;
 export const pathX = z => -1.5 + Math.sin(z * .09) * 2.8;
 export function isClearing(x, z) { return (x * x / 145 + z * z / 105 < 1) || Math.abs(x - pathX(z)) < 2.8 || Math.abs(z - (6 + x * .19 + Math.sin(x * .13))) < 2.1; }
-export function walkable(x, z) { return Math.abs(x) < 34 && Math.abs(z) < 34 && x < shore(z) - 1; }
+export function walkable(x, z) { return Number.isFinite(x) && Number.isFinite(z) && Math.abs(x) < MAP.playable && Math.abs(z) < MAP.playable && x < shore(z) - 1; }
 
 function groundTexture() {
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 2048;
-  const c = canvas.getContext('2d'), scale = 2048 / 100;
-  c.fillStyle = '#52613a'; c.fillRect(0, 0, 2048, 2048);
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 4096;
+  const c = canvas.getContext('2d'), scale = 4096 / 180;
+  c.fillStyle = '#52613a'; c.fillRect(0, 0, 4096, 4096);
   const dirt = ['#a69a6d','#a99d70','#a89b6f','#ad9f73','#aa9c70','#a49669'];
   const grass = ['#768451','#798654','#72804e','#7c8855','#758251','#7e8957','#73804f'];
-  for (let z = -50; z < 50; z += .125) for (let x = -50; x < 50; x += .125) {
+  for (let z = -90; z < 90; z += .125) for (let x = -90; x < 90; x += .125) {
     const ellipse = x * x / 170 + z * z / 125;
     const d = Math.min((ellipse - 1) * 3, Math.abs(x - pathX(z)) - 2.5, Math.abs(z - (6 + x * .19 + Math.sin(x * .13))) - 1.9);
     const palette = d < rand(-.42, .42) ? dirt : grass;
     c.fillStyle = palette[Math.floor(random() * palette.length)];
-    c.fillRect((x + 50) * scale, (z + 50) * scale, 3, 3);
+    c.fillRect((x + 90) * scale, (z + 90) * scale, 3, 3);
   }
-  for (let i = 0; i < 19000; i++) {
-    const x = rand(-50,50), z = rand(-50,50), clearing = isClearing(x,z);
+  for (let i = 0; i < 61000; i++) {
+    const x = rand(-90,90), z = rand(-90,90), clearing = isClearing(x,z);
     c.fillStyle = clearing ? ['#c0af79','#877e51','#b5a56d'][i%3] : ['#899356','#899750','#424e30','#a0a161'][i%4];
-    c.globalAlpha = rand(.15,.5); c.fillRect((x+50)*scale,(z+50)*scale,rand(1,5),rand(1,3));
+    c.globalAlpha = rand(.15,.5); c.fillRect((x+90)*scale,(z+90)*scale,rand(1,5),rand(1,3));
   }
   c.globalAlpha = .13; c.strokeStyle = '#695e40'; c.lineWidth = 2;
-  for (const offset of [-.85,.85]) { c.beginPath(); for (let z=-50;z<-8;z+=.2) c.lineTo((pathX(z)+offset+50)*scale,(z+50)*scale); c.stroke(); }
+  for (const offset of [-.85,.85]) { c.beginPath(); for (let z=-90;z<-8;z+=.2) c.lineTo((pathX(z)+offset+90)*scale,(z+90)*scale); c.stroke(); }
   c.globalAlpha=1;
   const tex = new T.CanvasTexture(canvas); tex.colorSpace=T.SRGBColorSpace; tex.magFilter=T.NearestFilter; tex.anisotropy=4; return tex;
 }
@@ -177,35 +178,60 @@ function mergeStatic(group) {
   group.clear();
   for(const {material,geos,cast} of batches.values()) { const m=new T.Mesh(mergeGeometries(geos),material); m.castShadow=cast; m.receiveShadow=!material.isMeshBasicMaterial; group.add(m); geos.forEach(g=>g.dispose()); }
 }
+// Deform the already-batched vegetation on the GPU; shadows use the same wind.
+function animateVegetation(group, wind, grass = false) {
+  mergeStatic(group);
+  const deformation = `
+    float phase = position.x * .17 + position.z * .13;
+    float breeze = sin(windTime * .85 + phase) * .7 + sin(windTime * 1.37 + phase * 1.8) * .3;
+    float weight = ${grass ? 'max(position.y, 0.) * .38' : 'pow(max(position.y, 0.), 2.) * .007'};
+    transformed.x += breeze * weight * windStrength;
+    transformed.z += sin(windTime * .68 + phase + 1.2) * weight * .55 * windStrength;
+  `;
+  const patch = shader => {
+    shader.uniforms.windTime = wind.time; shader.uniforms.windStrength = wind.strength;
+    shader.vertexShader = 'uniform float windTime; uniform float windStrength;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + deformation);
+  };
+  for (const batch of group.children) {
+    batch.material = batch.material.clone(); batch.material.onBeforeCompile = patch;
+    batch.material.customProgramCacheKey = () => `pinefall-wind-${grass}`;
+    batch.customDepthMaterial = new T.MeshDepthMaterial({ depthPacking: T.RGBADepthPacking });
+    batch.customDepthMaterial.onBeforeCompile = patch;
+    batch.customDepthMaterial.customProgramCacheKey = () => `pinefall-wind-depth-${grass}`;
+    batch.geometry.computeBoundingSphere(); batch.geometry.boundingSphere.radius += 1;
+  }
+}
 export function makeWorld(scene) {
-  const fixed=new T.Group(); scene.add(fixed);
-  const ground=mesh(fixed,new T.PlaneGeometry(100,100),new T.MeshStandardMaterial({map:groundTexture(),roughness:1}),0,-.07,0); ground.rotation.x=-Math.PI/2; ground.castShadow=false;
+  const fixed=new T.Group(), forest=new T.Group(), meadow=new T.Group(); scene.add(fixed, forest, meadow);
+  const wind = { time: { value: 0 }, strength: { value: 1 } };
+  const ground=mesh(fixed,new T.PlaneGeometry(MAP.size,MAP.size),new T.MeshStandardMaterial({map:groundTexture(),roughness:1}),0,-.07,0); ground.rotation.x=-Math.PI/2; ground.castShadow=false;
   // Canvas rows follow world +Z after the plane is rotated.
   ground.material.map.flipY=false;
   const trees=[];
-  for(let i=0;i<1800;i++) {
-    const x=rand(-49,49), z=rand(-47,45);
+  for(let i=0;i<5800;i++) {
+    const x=rand(-89,89), z=rand(-89,89);
     if(x>shore(z)-1.1 || isClearing(x,z) || x*x/215+z*z/162<1) continue;
     if(trees.some(t=>(t.x-x)**2+(t.z-z)**2<2.7)) continue;
     const size=rand(3.9,8.7), front=z>12&&Math.abs(x)<13;
     if(front && random()<.3) continue;
-    if(random()<.09) birch(fixed,x,z,size*.76); else pine(fixed,x,z,front?size*.83:size);
+    if(random()<.09) birch(forest,x,z,size*.76); else pine(forest,x,z,front?size*.83:size);
     trees.push({x,z,r:.33});
   }
-  for(let i=0;i<310;i++) {
-    const x=rand(-46,46),z=rand(-44,43);
+  for(let i=0;i<1000;i++) {
+    const x=rand(-89,89),z=rand(-89,89);
     if(x>shore(z)-.8 || (Math.abs(x)<5&&Math.abs(z)<7)) continue;
     if(isClearing(x,z) && random()<.82) continue;
     rock(fixed,x,z,rand(.12,.5));
   }
   // Angular boulders hug the irregular shoreline, with pale shingle underneath.
-  for(let z=-49;z<49;z+=.8) { const x=shore(z); rock(fixed,x+rand(-.3,.4),z,rand(.55,1.3)); if(random()>.45) rock(fixed,x-.8,z+.3,rand(.2,.55)); }
+  for(let z=-89;z<89;z+=.8) { const x=shore(z); rock(fixed,x+rand(-.3,.4),z,rand(.55,1.3)); if(random()>.45) rock(fixed,x-.8,z+.3,rand(.2,.55)); }
   const flowerGeo=new T.PlaneGeometry(.075,.22); flowerGeo.translate(0,.11,0);
   const stems=[];
-  for(let i=0;i<3800;i++) {
-    const x=rand(-40,38),z=rand(-38,38); if(x>shore(z)-.8 || (isClearing(x,z)&&random()<.93)) continue;
-    const stalk=mesh(fixed,flowerGeo,['#9b9e5e','#81904c','#536e40'][i%3],x,0,z); stalk.rotation.y=rand(0,6.28);
-    if(i%4===0) { box(fixed,i%8===0?'#d9d1a0':'#b6b882',x,.24,z,.1,.07,.1); stems.push({x,z}); }
+  for(let i=0;i<16000;i++) {
+    const x=rand(-89,89),z=rand(-89,89); if(x>shore(z)-.8 || (isClearing(x,z)&&random()<.93)) continue;
+    const stalk=mesh(meadow,flowerGeo,['#9b9e5e','#81904c','#536e40'][i%3],x,0,z); stalk.rotation.y=rand(0,6.28);
+    if(i%4===0) { box(meadow,i%8===0?'#d9d1a0':'#b6b882',x,.24,z,.1,.07,.1); stems.push({x,z}); }
   }
   camper(fixed); tent(fixed,-5.5,4.1,'#7c8850',-.2); tent(fixed,5.2,4.3,'#c2753e',.22);
   // Campfire: stone ring, charred logs, glowing coals.
@@ -232,11 +258,11 @@ export function makeWorld(scene) {
   for(const z of [-.83,.83]) { beam(table,'#756744',[-.8,0,z],[.45,1.1,z],.13); beam(table,'#756744', [.8,0,z],[-.45,1.1,z],.13); box(table,'#7b6941',0,.5,z,2.3,.12,.15); }
   box(table,'#b65e3c',.1,1.28,-.4,.2,.25,.2); box(table,'#dfd5b0',.1,1.42,-.4,.2,.035,.2); box(table,'#d1c6a0',-.2,1.22,.55,.36,.05,.3);
   // String lights arc from campsite poles across the clearing.
-  const bulbs=[]; const wireMat=new T.LineBasicMaterial({color:'#454f39'});
+  const bulbs=[], pendants=[]; const wireMat=new T.LineBasicMaterial({color:'#454f39'});
   for(const x of [-9,8.8]) box(fixed,'#75623d',x,2.3,2,.12,4.6,.12);
   const wire=[];
-  for(let i=0;i<=40;i++) { const p=new T.Vector3(-9+i/40*17.8,4.6-Math.sin(i/40*Math.PI)*1.05,2); wire.push(p); if(i%3===1) { const bulb=box(fixed,'#ffe1a0',p.x,p.y-.17,p.z,.11,.18,.11,true); bulbs.push(bulb); beam(fixed,'#4f5239',[p.x,p.y,p.z],[p.x,p.y-.12,p.z],.025); } }
-  scene.add(new T.Line(new T.BufferGeometry().setFromPoints(wire),wireMat));
+  for(let i=0;i<=40;i++) { const p=new T.Vector3(-9+i/40*17.8,4.6-Math.sin(i/40*Math.PI)*1.05,2); wire.push(p); if(i%3===1) { const pendant=new T.Group(); scene.add(pendant); pendant.position.copy(p); pendant.userData.fraction=i/40; pendants.push(pendant); const bulb=box(pendant,'#ffe1a0',0,-.17,0,.11,.18,.11,true); bulbs.push(bulb); beam(pendant,'#4f5239',[0,0,0],[0,-.12,0],.025); } }
+  const lightWire=new T.Line(new T.BufferGeometry().setFromPoints(wire),wireMat); scene.add(lightWire);
   const logs=[];
   for(const [x,z,a] of [[-12,7,-.2],[10,-7,.4],[-8,-12,1.1],[9,14,1.4]]) {
     const g=new T.Group(); fixed.add(g); g.position.set(x,0,z); g.rotation.y=a;
@@ -250,7 +276,7 @@ export function makeWorld(scene) {
   for(const x of [0,4.4]) for(const z of [-1.03,1.03]) { box(dock,'#675b40',x,.31,z,.19,1.3,.19); box(dock,'#b4a17b',x,1,z,.23,.09,.23); }
   // Shoreline water shader: softly moving faceted ripples and broken foam.
   const waterMat=new T.ShaderMaterial({uniforms:{time:{value:0},day:{value:1}},vertexShader:`varying vec3 world; void main(){world=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*viewMatrix*vec4(world,1.);}`,fragmentShader:`varying vec3 world; uniform float time; uniform float day; float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);} void main(){float z=world.z;float edge=24.-.19*z+sin(z*.15)*2.2+sin(z*.41)*.6;float d=world.x-edge;if(d<0.)discard;vec2 p=floor(world.xz*5.)/5.;float n=sin(p.x*1.6+p.y*2.4+time*.7)*sin(p.y*3.7-time*.45);vec3 shallow=vec3(.27,.48,.43),deep=vec3(.12,.32,.34);vec3 c=mix(shallow,deep,smoothstep(0.,8.,d));c+=n*.018;float wave=sin(d*8.-time*1.4+sin(z*3.)*.5);if(d<.85&&wave>.66)c=mix(c,vec3(.67,.73,.57),.7);float shine=step(.974,hash(floor(p*vec2(1.3,7.)+vec2(time*.1,0.))))*step(.4,sin(p.y*4.+time));c+=shine*.15;c*=mix(vec3(.3,.45,.62),vec3(1.),day);gl_FragColor=vec4(c,1.);}`});
-  const water=mesh(scene,new T.PlaneGeometry(100,100),waterMat,0,-.015,0); water.rotation.x=-Math.PI/2; water.castShadow=false;
-  mergeStatic(fixed);
-  return {fixed,trees,flames,fireLight,fireAt,halo,waterMat,logs};
+  const water=mesh(scene,new T.PlaneGeometry(MAP.size,MAP.size),waterMat,0,-.015,0); water.rotation.x=-Math.PI/2; water.castShadow=false;
+  mergeStatic(fixed); animateVegetation(forest, wind); animateVegetation(meadow, wind, true);
+  return {fixed,trees,flames,fireLight,fireAt,halo,waterMat,logs,wind,lightWire,pendants};
 }

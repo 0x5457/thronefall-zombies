@@ -6,6 +6,36 @@
       "sourceType": "github",
       "skillPath": "skills/find-skills/SKILL.md",
       "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "game-feel": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/disciplines/game-feel/SKILL.md",
+      "computedHash": "fd8a092926b904a974494ef9e9d123c6a5f872dfaf2ab8f1affd9d015ec95dc3"
+    },
+    "level-design": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/disciplines/level-design/SKILL.md",
+      "computedHash": "135790ffbf3dfd87da15f5d72a1d6e58f06d40b3c747a8111b169162b7af3f72"
+    },
+    "save-systems": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/disciplines/save-systems/SKILL.md",
+      "computedHash": "1ce25859071b68e57b6c78f497b18d3c78b1b91d1fb74bd5e97e5ff5887274e7"
+    },
+    "survival-crafting": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/genres/survival-crafting/SKILL.md",
+      "computedHash": "84f53d85fe79d8d626629f92fb8c32c8d213a7de62136a2aa9b869d2dd5c0439"
+    },
+    "tower-defense": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/genres/tower-defense/SKILL.md",
+      "computedHash": "b53d8b3696a3ede5c88d7e600c967ce3aef806698091c59fd8a4fef1e55de454"
     }
   }
 }
