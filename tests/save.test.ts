@@ -13,7 +13,7 @@ import {
   writeSave,
 } from '../src/save.js';
 import type { ReadSaveResult } from '../src/save.js';
-import { newGame } from '../src/rules.js';
+import { newGame, WAVES } from '../src/rules.js';
 import type { Building } from '../src/rules.js';
 
 function memoryStorage(seed: Record<string, string> = {}) {
@@ -177,6 +177,29 @@ test('only day checkpoints are written and validated', () => {
   payload.phase = 'night';
   assert.equal(isValidSave(payload), false);
   assert.equal(isValidSave(campaignPayload(campaign())), true);
+});
+
+test('schema validation rejects malformed untrusted fields', () => {
+  const valid = campaignPayload(campaign());
+  assert.equal(isValidSave(valid), true);
+  assert.equal(
+    isValidSave({ ...valid, extra: 1, state: { ...valid.state, future: true } }),
+    true,
+    'unknown fields stay forward compatible',
+  );
+  const invalid: unknown[] = [
+    null,
+    {},
+    { ...valid, version: 'one' },
+    { ...valid, phase: 'night' },
+    { ...valid, state: { ...valid.state, health: Number.NaN } },
+    { ...valid, state: { ...valid.state, day: 0 } },
+    { ...valid, state: { ...valid.state, day: WAVES.length + 1 } },
+    { ...valid, state: { ...valid.state, weapon: 'cannon' } },
+    { ...valid, state: { ...valid.state, buildings: [{ type: 'statue', x: 0, z: 0, hp: 1 }] } },
+    { ...valid, state: { ...valid.state, logs: [{ id: 7, remaining: 2 }] } },
+  ];
+  for (const candidate of invalid) assert.equal(isValidSave(candidate), false);
 });
 
 test('saveSummary exposes what the home screen needs', () => {

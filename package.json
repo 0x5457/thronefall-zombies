@@ -7,11 +7,13 @@
     "dev": "vp dev --host 0.0.0.0",
     "build": "vp build",
     "preview": "vp preview --host 0.0.0.0",
-    "test": "vp test"
+    "test": "vp test",
+    "check": "vp check"
   },
   "dependencies": {
     "three": "^0.180.0",
-    "xstate": "5.33.2"
+    "xstate": "5.33.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",

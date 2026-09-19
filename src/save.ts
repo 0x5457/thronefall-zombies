@@ -1,5 +1,6 @@
 // Campaign checkpoints (ARC-04). Owns the versioned JSON, storage slots and in-place restore.
 // The save format is ours alone: XState internals, meshes, enemies and pause flags never enter it.
+import { z } from 'zod';
 import {
   WAVES,
   WEAPONS,
@@ -36,8 +37,37 @@ const SCALAR_FIELDS: (keyof GameState)[] = [
   'weaponMod',
   'nextBuildId',
 ];
-const ARRAY_FIELDS: (keyof GameState)[] = ['unlocked', 'perks', 'rv'];
 const MIGRATIONS: Record<number, (save: CampaignSave) => CampaignSave> = {};
+
+// Untrusted localStorage data is validated with zod before it reaches game code.
+// Extra keys are kept loose on purpose: the save format may carry more fields than we validate.
+const buildingSchema = z.looseObject({
+  type: z.enum(['fence', 'tower', 'lantern']),
+  x: z.number(),
+  z: z.number(),
+  hp: z.number(),
+});
+const logSchema = z.looseObject({ id: z.string(), remaining: z.number() });
+export const saveSchema = z.looseObject({
+  version: z.number().int(),
+  savedAt: z.number().optional(),
+  phase: z.literal('day'),
+  state: z.looseObject({
+    day: z.number().int().min(1).max(WAVES.length),
+    wood: z.number(),
+    scrap: z.number(),
+    health: z.number(),
+    playerHp: z.number(),
+    medkits: z.number(),
+    kills: z.number(),
+    weapon: z.string().refine((id) => Object.hasOwn(WEAPONS, id)),
+    unlocked: z.array(z.string()),
+    perks: z.array(z.string()),
+    rv: z.array(z.string()),
+    buildings: z.array(buildingSchema),
+    logs: z.array(logSchema),
+  }),
+});
 
 interface SavedState extends Record<string, unknown> {
   day: number;
@@ -102,34 +132,7 @@ export function campaignPayload(state: GameState): CampaignSave {
 }
 
 export function isValidSave(save: unknown): save is CampaignSave {
-  if (!save || typeof save !== 'object') return false;
-  const doc = save as Partial<CampaignSave>;
-  if (!Number.isInteger(doc.version)) return false;
-  if (doc.phase !== 'day') return false;
-  const s = doc.state;
-  if (!s || typeof s !== 'object') return false;
-  if (!Number.isFinite(s.day) || s.day < 1 || s.day > WAVES.length) return false;
-  if (!Number.isFinite(s.wood) || !Number.isFinite(s.scrap) || !Number.isFinite(s.health))
-    return false;
-  if (!Number.isFinite(s.playerHp) || !Number.isFinite(s.medkits) || !Number.isFinite(s.kills))
-    return false;
-  if (!WEAPONS[s.weapon]) return false;
-  for (const field of ARRAY_FIELDS) if (!Array.isArray(s[field])) return false;
-  if (!Array.isArray(s.buildings) || !Array.isArray(s.logs)) return false;
-  if (
-    !s.buildings.every(
-      (b: Building) =>
-        b &&
-        ['fence', 'tower', 'lantern'].includes(b.type) &&
-        Number.isFinite(b.x) &&
-        Number.isFinite(b.z) &&
-        Number.isFinite(b.hp),
-    )
-  )
-    return false;
-  if (!s.logs.every((l: LogNode) => l && typeof l.id === 'string' && Number.isFinite(l.remaining)))
-    return false;
-  return true;
+  return saveSchema.safeParse(save).success;
 }
 
 function migrate(save: CampaignSave): CampaignSave | null {
