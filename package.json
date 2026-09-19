@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0",
+    "dev": "vp dev --host 0.0.0.0",
+    "build": "vp build",
+    "preview": "vp preview --host 0.0.0.0",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
@@ -15,6 +15,17 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",
-    "vite": "^7.1.7"
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
+    "vite-plus": "0.3.3"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11",
+      "onFail": "warn"
+    }
   }
 }
