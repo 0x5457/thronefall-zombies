@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#17291f" />
   <style>
-    html, body { margin: 0; min-height: 100%; background: #182c25; }
+    html, body { margin: 0; min-height: 100%; background: #0a1610; }
     body { overflow: hidden; }
     #loading {
       position: fixed;
@@ -17,17 +17,18 @@
       justify-content: center;
       overflow: hidden;
       background: radial-gradient(circle at 50% 42%, #2d4b37 0, #1c3029 38%, #11231d 100%);
-      color: #f3edda;
+      color: #f6e8c2;
+      font-family: 'DM Sans', 'Microsoft YaHei', sans-serif;
     }
-    #loading .loading-tree { display: grid; width: 72px; height: 72px; margin-bottom: 18px; place-items: center; border: 1px solid #f0d59a66; border-radius: 50%; background: #0a1a122e; }
-    #loading .loading-tree svg { width: 39px; height: 45px; fill: #eadcb2; }
-    #loading .loading-kicker { margin-bottom: 12px; color: #becba9; font: 500 8px 'DM Sans', sans-serif; letter-spacing: 3px; }
-    #loading h2 { margin: 0 0 12px; color: #f1e4bd; font: 800 34px 'Manrope', sans-serif; letter-spacing: 9px; text-indent: 9px; }
-    #loading p { display: flex; align-items: center; gap: 8px; margin: 0; font: 11px 'DM Sans', sans-serif; letter-spacing: 3px; color: #b5bf9e; }
-    #loading p i { width: 4px; height: 4px; border-radius: 50%; background: #f0d59a; }
-    #loading .loading-progress { width: 190px; height: 3px; margin-top: 24px; overflow: hidden; border: 1px solid #f0d59a33; background: #0a1a1244; }
-    #loading .loading-progress i { display: block; width: 0; height: 100%; background: #f0d59a; transition: width .25s ease-out; }
-    #loading .loading-meta { display: flex; justify-content: space-between; width: 190px; margin-top: 8px; color: #91a487; font: 9px 'DM Sans', sans-serif; letter-spacing: 1px; }
+    #loading .loading-tree { display: grid; width: 78px; height: 78px; margin-bottom: 20px; place-items: center; border: 2px solid #08130d; background: #0e2017; box-shadow: inset 0 0 0 3px rgba(242, 201, 107, .28); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+    #loading .loading-tree svg { width: 40px; height: 46px; fill: #f2c96b; }
+    #loading .loading-kicker { margin-bottom: 13px; color: #a9c076; font-size: 9px; letter-spacing: 2px; }
+    #loading h2 { margin: 0 0 14px; color: #ffe9b0; font: 700 30px 'DM Sans', sans-serif; letter-spacing: 6px; text-indent: 6px; }
+    #loading p { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; letter-spacing: 2px; color: #cfc09a; }
+    #loading p i { width: 6px; height: 6px; background: #f2c96b; }
+    #loading .loading-progress { width: 210px; height: 9px; margin-top: 24px; padding: 2px; border: 2px solid #08130d; background: rgba(0, 0, 0, .45); }
+    #loading .loading-progress i { display: block; width: 0; height: 100%; background: #f2c96b; transition: width .25s ease-out; }
+    #loading .loading-meta { display: flex; justify-content: space-between; width: 210px; margin-top: 9px; color: #91a487; font-size: 9px; letter-spacing: 1px; }
   </style>
   <title>PINEFALL · 松林余烬</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2396ab6a' d='M32 3 12 29h11L7 47h20v14h10V47h20L41 29h11Z'/%3E%3C/svg%3E" />
@@ -38,17 +39,51 @@
     <div class="vignette"></div>
     <div id="rv-fade" hidden aria-hidden="true" style="position:absolute;inset:0;background:#202e2b;z-index:5;opacity:0"></div>
     <header class="topbar">
-      <div class="brand"><svg viewBox="0 0 40 44" aria-hidden="true"><path d="M20 2 8 20h7L4 35h13v7h6v-7h13L25 20h7Z"/></svg><div><h1>PINEFALL<span>松林余烬</span></h1><p>A LITTLE LIGHT IN THE WILD</p></div></div>
-      <div class="day-panel"><span id="phase-icon">☀</span><div><strong id="day-label">DAY 01</strong><span id="phase-label">午后 · 营地建设</span></div><div class="day-track"><i id="day-progress"></i></div></div>
-      <div class="tools"><button id="sound" title="点击开启 8-bit 音乐与音效" aria-label="开启音乐与音效" aria-pressed="false">♫</button><details class="audio-settings"><summary aria-label="音量设置" title="音量设置">☷</summary><div class="audio-panel"><strong>松林电台 <small>8-BIT</small></strong><label for="audio-master">总音量 <output id="audio-master-value">65%</output></label><input id="audio-master" type="range" min="0" max="100" value="65"><label for="audio-music">背景音乐 <output id="audio-music-value">65%</output></label><input id="audio-music" type="range" min="0" max="100" value="65"><label for="audio-sfx">动作音效 <output id="audio-sfx-value">80%</output></label><input id="audio-sfx" type="range" min="0" max="100" value="80"><p id="audio-status">点击或按键后播放 · 设置自动保存</p></div></details><button id="photo" title="隐藏界面 · H" aria-label="隐藏界面">⌗</button><button id="pause" title="暂停 · P" aria-label="暂停" aria-pressed="false">Ⅱ</button><button id="help" title="操作说明" aria-label="操作说明">?</button></div>
+      <div class="brand"><svg class="brand-mark" viewBox="0 0 40 44" aria-hidden="true"><path d="M20 2 8 20h7L4 35h13v7h6v-7h13L25 20h7Z"/></svg><div class="brand-text"><h1>PINEFALL</h1><p>松林余烬 · CAMPSITE 07</p></div></div>
+      <div class="day-panel"><span id="phase-icon" aria-hidden="true">☀</span><div class="day-copy"><strong id="day-label">DAY 01</strong><span id="phase-label">午后 · 营地建设</span></div><div class="day-track"><i id="day-progress"></i></div></div>
+      <div class="tools"><button id="sound" title="点击开启 8-bit 音乐与音效" aria-label="开启音乐与音效" aria-pressed="false">♫</button><details class="audio-settings"><summary aria-label="音量设置" title="音量设置">☷</summary><div class="audio-panel"><strong>松林电台 <small>8-BIT</small></strong><label for="audio-master">总音量 <output id="audio-master-value">65%</output></label><input id="audio-master" type="range" min="0" max="100" value="65"><label for="audio-music">背景音乐 <output id="audio-music-value">65%</output></label><input id="audio-music" type="range" min="0" max="100" value="65"><label for="audio-sfx">动作音效 <output id="audio-sfx-value">80%</output></label><input id="audio-sfx" type="range" min="0" max="100" value="80"><p id="audio-status">点击或按键后播放 · 设置自动保存</p></div></details><button id="photo" title="隐藏界面 · H" aria-label="隐藏界面">⌗</button><button id="shake" title="打击反馈 · 镜头震动已开启" aria-label="镜头震动开关" aria-pressed="true">≈</button><button id="pause" title="暂停 · P" aria-label="暂停" aria-pressed="false">Ⅱ</button><button id="help" title="操作说明" aria-label="操作说明">?</button></div>
     </header>
-    <aside class="camp-status"><div class="eyebrow"><span class="live-dot"></span> BLACK PINE NATIONAL FOREST</div><h2>最后一处营火<span>CAMPSITE 07 / 远离喧嚣，守住微光。</span></h2><div class="resources"><span><i class="wood-icon">▰</i><b id="wood">80</b><small>木材</small></span><span><i class="heart-icon">◇</i><b id="health">100</b><small>营地</small></span><span><i class="kill-icon">✧</i><b id="kills">0</b><small>击退</small></span></div><div class="health-track"><i id="health-bar"></i></div><p id="owned-perks" aria-live="polite">专长 · 守过首夜后选择</p></aside>
+      <aside class="camp-status" aria-label="营地资源"><div class="resources">
+        <span class="res" title="木材 · 建造与升级"><svg class="res-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14.6h18v4.2H3z" fill="#8a5f38"/><path d="M3 9.2h18v4.2H3z" fill="#a97a48"/><ellipse cx="7.6" cy="11.3" rx="3.5" ry="3.3" fill="#d8b47c"/><ellipse cx="7.6" cy="11.3" rx="1.4" ry="1.3" fill="#a97a48"/><ellipse cx="7.6" cy="16.7" rx="3.5" ry="3.3" fill="#c9a06a"/><ellipse cx="7.6" cy="16.7" rx="1.4" ry="1.3" fill="#8a5f38"/></svg><b id="wood">80</b><small>木材</small></span>
+        <span class="res" title="零件 · 工坊与高级升级"><svg class="res-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#b9c2a4" d="M13.9 2h-3.8l-.6 2.5a7.6 7.6 0 0 0-1.7 1L5.4 4.6 3.7 7.5l1.9 1.7a7.7 7.7 0 0 0 0 2L3.7 13l1.7 2.9 2.4-.9c.5.4 1.1.7 1.7 1l.6 2.5h3.8l.6-2.5c.6-.3 1.2-.6 1.7-1l2.4.9 1.7-2.9-1.9-1.7a7.7 7.7 0 0 0 0-2l1.9-1.7-1.7-2.9-2.4.9a7.6 7.6 0 0 0-1.7-1z"/><circle cx="12" cy="10.5" r="2.7" fill="#22372b"/></svg><b id="scrap">8</b><small>零件</small></span>
+        <span class="res" title="营地耐久 · 归零即失败"><svg class="res-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#e8b37a" d="M12 2 4 5v6.5c0 4.8 3.3 8.3 8 9.5 4.7-1.2 8-4.7 8-9.5V5z"/><path fill="#7a4a2c" d="M12 6.4 7.2 14h9.6z"/><path fill="#7a4a2c" d="M10.8 14h2.4v3.4h-2.4z"/></svg><b id="health">100</b><small>营地</small></span>
+        <span class="res" title="累计击退"><svg class="res-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#cfd3ba" d="M12 2C7.6 2 4.5 5.2 4.5 9.4v2.9c0 1.6.8 2.6 2 3.2v2.6c0 .9.7 1.6 1.6 1.6h.6v-2h2.4v2h1.8v-2h2.4v2h.6c.9 0 1.6-.7 1.6-1.6v-2.6c1.2-.6 2-1.6 2-3.2V9.4C19.5 5.2 16.4 2 12 2z"/><circle cx="8.9" cy="10.2" r="1.7" fill="#22372b"/><circle cx="15.1" cy="10.2" r="1.7" fill="#22372b"/><path fill="#22372b" d="M10.9 13.3h2.2l-1.1 2.1z"/></svg><b id="kills">0</b><small>击退</small></span>
+      </div><div class="health-track" title="营地耐久"><i id="health-bar"></i></div><p id="owned-perks" aria-live="polite">专长 · 守过首夜后选择</p></aside>
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="hurt-flash" aria-hidden="true"></div>
+    <div id="boss-bar" hidden><strong id="boss-name">林中巨影</strong><div class="boss-track"><i id="boss-hp"></i></div></div>
+    <div id="radio-alert" hidden aria-live="polite"></div>
+    <div id="vitals" aria-label="角色状态">
+      <span class="vital-portrait" title="巡林人" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#a9c076" d="M4.8 20.8c.7-3.2 3.5-5.1 7.2-5.1s6.5 1.9 7.2 5.1z"/><path fill="#f2c96b" d="M12 4.4a4.4 4.4 0 0 0-4.4 4.4v1.7a4.4 4.4 0 0 0 8.8 0V8.8A4.4 4.4 0 0 0 12 4.4z"/><path fill="#4a3421" d="M12 1.2 4.6 5.8l1.6 2.3L12 4.6l5.8 3.5 1.6-2.3z"/><path fill="#22372b" d="M10.3 8.6a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1zm3.4 0a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/></svg></span>
+      <div class="vital-bars">
+        <div class="vital-track hp" title="角色生命"><i id="player-hp"></i><b id="player-hp-text">100</b></div>
+        <div class="vital-track stamina" title="体力 · Shift 冲刺"><i id="player-stamina"></i></div>
+      </div>
+      <div class="vital-chips">
+        <span id="weapon-chip" title="打开营地手册（Tab）切换武器">巡林卡宾枪</span>
+        <span id="medkit-chip" title="F 使用医疗包">✚ 2</span>
+        <span id="flare-chip" title="Q 信号弹减速敌人">✦ 就绪</span>
+      </div>
+    </div>
+    <aside id="building-panel" hidden aria-label="建筑操作">
+      <button class="close" id="building-close" aria-label="关闭">×</button>
+      <span class="eyebrow" id="building-kind">CAMP STRUCTURE</span>
+      <h3><span id="building-name">瞭望塔</span><small id="building-level">Lv.1</small></h3>
+      <div class="health-track"><i id="building-hp"></i></div>
+      <p id="building-stats"></p>
+      <div class="building-actions">
+        <button id="building-upgrade">升级</button>
+        <button id="building-repair">维修</button>
+        <button id="building-dismantle" class="danger">拆除</button>
+      </div>
+      <p class="building-note" id="building-note"></p>
+    </aside>
     <div id="world-label" class="world-label"></div>
     <button id="rv-door" hidden aria-label="房车侧门交互">E · 进入房车</button>
     <section id="interior-panel" hidden aria-label="房车内部">
       <span class="eyebrow">HOME BETWEEN THE PINES</span><h2>松林里的小小居所</h2>
-      <p>白天准备时间已暂停 · WASD 在过道走动<br>床铺、餐桌与厨房为固定陈设，家具布置尚未开放。</p>
+      <p id="rv-hint">白天准备时间已暂停 · WASD 在过道走动<br>沿切面安装功能模块，在台面与墙上摆放装饰。</p>
+      <div id="rv-furniture" aria-label="房车布置"></div>
       <button id="rv-lamp" aria-pressed="true">床头灯 · 已开启</button>
       <button id="leave-rv" class="primary">离开房车 · E / Esc →</button>
     </section>
@@ -59,10 +94,29 @@
         <button class="build-card" data-build="tower" title="瞭望塔：自动攻击附近敌人，消耗 35 木材"><kbd>2</kbd><svg viewBox="0 0 64 48"><path d="M18 19h5l-3 25h-5zm23 0h5l3 25h-5zM20 27l24 12-2 3-24-12z" fill="#b89967"/><path d="M12 13h40v8H12zm4-9h3v13h-3zm29 0h3v13h-3zM16 7h32v3H16z" fill="#d7b77b"/><path d="M30 2h5v11h-5z" fill="#b66a45"/></svg><strong>瞭望塔</strong><span>▰ 35</span></button>
         <button class="build-card" data-build="lantern" title="营地灯：照亮森林并减缓附近敌人，消耗 10 木材"><kbd>3</kbd><svg viewBox="0 0 64 48"><path d="M23 43h17v3H23zm7-36h4v37h-4zm2-3h15v3H32zm12 1h2v9h-2z" fill="#b89967"/><path d="M40 14h10v13H40z" fill="#efd48d"/><path d="M39 12h12v3H39zm0 15h12v3H39z" fill="#665a42"/></svg><strong>营地灯</strong><span>▰ 10</span></button>
       </div></div>
-      <div class="controls-hint"><div><kbd>W</kbd><span> / </span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span> 移动</span></div><p>靠近敌人自动攻击 · <kbd>E</kbd> 收集 / 进入房车</p><p>滚轮缩放 · <kbd>H</kbd> 纯净画面</p><span class="edition">A THREE.JS WOODLAND DIORAMA</span></div>
+      <div class="controls-hint" aria-label="操作提示">
+        <div class="hint-row"><span class="hint-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span class="hint-label">移动 · 自动射击</span></div>
+        <div class="hint-row"><span class="hint-keys"><kbd>E</kbd></span><span class="hint-label">采集 / 进入房车</span></div>
+        <div class="hint-row"><span class="hint-keys"><kbd>Shift</kbd><kbd>Q</kbd><kbd>F</kbd></span><span class="hint-label">冲刺 / 信号弹 / 医疗包</span></div>
+        <div class="hint-row"><span class="hint-keys"><kbd>Tab</kbd><kbd>X</kbd></span><span class="hint-label">营地手册 / 换武器</span></div>
+        <div class="hint-row"><span class="hint-keys"><kbd>N</kbd><kbd>P</kbd><kbd>H</kbd></span><span class="hint-label">昼夜 / 暂停 / 隐藏界面</span></div>
+        <div class="hint-row"><span class="hint-keys"><kbd>滚轮</kbd></span><span class="hint-label">拉近 / 拉远镜头</span></div>
+      </div>
     </section>
     <div id="photo-hint" hidden>H 恢复界面 · N 切换昼夜</div>
-    <dialog id="help-dialog"><button class="close" aria-label="关闭">×</button><span class="eyebrow">WELCOME TO THE WOODS</span><h2>守住这一点温暖。</h2><p>白天探索松林、收集木材，沿营地外围建造防御。入夜后，抵挡从小径涌来的不速之客，保护房车。</p><dl><dt>WASD / 方向键</dt><dd>移动角色，靠近敌人自动射击</dd><dt>E</dt><dd>收集木材 / 白天在房车侧门进入；室内 E 或 Esc 离开</dd><dt>1 / 2 / 3</dt><dd>选择建筑，点击空地建造</dd><dt>R / Esc</dt><dd>旋转建筑 / 取消建造</dd><dt>N / P / H</dt><dd>切换昼夜 / 暂停 / 隐藏界面</dd><dt>鼠标滚轮</dt><dd>拉近或拉远镜头</dd><dt>♫ / ☷</dt><dd>静音开关 / 音量设置；首次操作后播放昼夜配乐</dd></dl><button id="help-start" class="primary">回到营火旁 →</button></dialog>
+    <dialog id="help-dialog"><button class="close" aria-label="关闭">×</button><span class="eyebrow">WELCOME TO THE WOODS</span><h2>守住这一点温暖。</h2><p>白天探索松林、收集木材，沿营地外围建造防御。入夜后，抵挡从小径涌来的不速之客，保护房车。</p><dl><dt>WASD / 方向键</dt><dd>移动角色，靠近敌人自动射击</dd><dt>Shift / Q / F</dt><dd>冲刺（消耗体力）/ 信号弹（减速）/ 医疗包</dd><dt>Tab / X</dt><dd>营地手册（工坊 · 远征 · 情报）/ 快速切换武器</dd><dt>E</dt><dd>收集木材 / 白天在房车侧门进入；室内 E 或 Esc 离开</dd><dt>1 / 2 / 3</dt><dd>选择建筑，点击空地建造；点击已建建筑可升级 / 维修 / 拆除</dd><dt>R / Esc</dt><dd>旋转建筑 / 取消选择</dd><dt>N / P / H</dt><dd>切换昼夜 / 暂停 / 隐藏界面</dd><dt>鼠标滚轮</dt><dd>拉近或拉远镜头</dd><dt>♫ / ☷</dt><dd>静音开关 / 音量设置；首次操作后播放昼夜配乐</dd></dl><button id="help-start" class="primary">回到营火旁 →</button></dialog>
+    <dialog id="manual-dialog" aria-labelledby="manual-title">
+      <button class="close" id="manual-close" aria-label="关闭">×</button>
+      <span class="eyebrow">CAMP MANUAL · 白天的准备</span>
+      <h2 id="manual-title">营地手册</h2>
+      <div class="manual-tabs" role="tablist">
+        <button data-manual-tab="workshop" role="tab" aria-selected="true">工坊</button>
+        <button data-manual-tab="expedition" role="tab" aria-selected="false">远征</button>
+        <button data-manual-tab="intel" role="tab" aria-selected="false">战前情报</button>
+      </div>
+      <div class="manual-page" id="manual-page" role="tabpanel"></div>
+      <p class="manual-foot">打开手册不会消耗准备时间 · <kbd>Tab</kbd> 或 <kbd>Esc</kbd> 关闭</p>
+    </dialog>
     <dialog id="perk-dialog" aria-labelledby="perk-title" aria-describedby="perk-summary"><span class="eyebrow">DAWN REWARDS · A LITTLE STRONGER</span><h2 id="perk-title">又守住了一束光。</h2><p id="perk-summary"></p><div id="perk-options"></div><p class="perk-footnote">选择一项永久专长，随后开始新一天的准备。已拥有的专长不会重复出现。</p></dialog>
     <dialog id="end-dialog" aria-labelledby="end-title"><span class="eyebrow">THE FIRE WILL BURN AGAIN</span><h2 id="end-title">余烬尚未冷却。</h2><p id="end-text"></p><button id="restart" class="primary">重新扎营 →</button></dialog>
     <div id="loading">
@@ -75,5 +129,6 @@
     </div>
   </main>
   <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/ui-fx.js"></script>
 </body>
 </html>

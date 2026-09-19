@@ -151,11 +151,45 @@ export function makeInterior() {
   box(scene, '#a3b78c', -1.65, 2.05, -1.5, .32, .44, .02);
   mesh(scene, new T.CylinderGeometry(.12, .09, .19, 8), '#b97951', 1.12, 1.18, -1.28);
   for (let i = 0; i < 4; i++) mesh(scene, new T.ConeGeometry(.08, .38, 5), '#6f8854', 1.12 + Math.sin(i * 2) * .09, 1.43, -1.28 + Math.cos(i * 2) * .07);
+  // ——— RV-GAMEPLAY: module slots, decoration and empty-slot markers ———
+  // Function modules line the cut-away edge; decor lives on fixed surfaces so the aisle stays clear.
+  const modules = {
+    workbench: workbenchModel(), radio: radioModel(), medcab: medcabModel(),
+    plant: plantModel(), quilt: quiltModel(), photos: photosModel(),
+  };
+  const markers = {};
+  for (const [id, slot] of Object.entries(RV_SLOTS)) {
+    const marker = slot.kind === 'function' ? slotRing(slot.x, 1.26) : decorPin(slot.x, slot.y, slot.z);
+    marker.userData.slot = slot;
+    markers[id] = marker; scene.add(marker);
+    modules[id].position.set(slot.x, slot.y, slot.z); modules[id].rotation.y = slot.rotation || 0;
+    scene.add(modules[id]); modules[id].visible = false;
+  }
+  function applyFurniture(owned = []) {
+    for (const id of Object.keys(modules)) {
+      const has = owned.includes(id);
+      modules[id].visible = has; markers[id].visible = !has;
+    }
+  }
+  function applySlots(functionSlots = 1) {
+    let index = 0;
+    for (const [id, marker] of Object.entries(markers)) {
+      if (RV_SLOTS[id].kind !== 'function') continue;
+      const locked = index >= functionSlots;
+      marker.material.color.set(locked ? '#7d8676' : '#f0d59a');
+      marker.material.opacity = locked ? .2 : .6;
+      index++;
+    }
+  }
+  applyFurniture([]); applySlots(1);
   // One reversible interaction; no resource bonuses or implied save support.
   let lampOn = true;
   return {
     scene, camera,
     get lampOn() { return lampOn; },
+    modules, markers, slots: RV_SLOTS,
+    setFurniture(owned) { applyFurniture(owned); },
+    setSlots(functionSlots) { applySlots(functionSlots); },
     toggleLamp() {
       lampOn = !lampOn;
       lamp.intensity = lampOn ? 5 : 0;
@@ -164,6 +198,88 @@ export function makeInterior() {
       return lampOn;
     },
   };
+}
+
+// Slot anchors in interior space: functions on the cut edge, decor on counters, bed and wall.
+export const RV_SLOTS = {
+  workbench: { kind: 'function', x: -3.35, z: 1.6, y: 0 },
+  radio: { kind: 'function', x: -1.75, z: 1.6, y: 0 },
+  medcab: { kind: 'function', x: -.15, z: 1.6, y: 0 },
+  plant: { kind: 'decor', x: -1.18, z: -.98, y: 1.08 },
+  quilt: { kind: 'decor', x: -3.05, z: 1.02, y: .95 },
+  photos: { kind: 'decor', x: -2.85, z: -1.62, y: 1.98 },
+};
+function slotRing(x, z) {
+  const ring = new T.Mesh(new T.RingGeometry(.3, .4, 26), new T.MeshBasicMaterial({ color: '#f0d59a', transparent: true, opacity: .6, side: T.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(x, .028, z);
+  return ring;
+}
+function decorPin(x, y, z) {
+  const pin = new T.Mesh(new T.OctahedronGeometry(.11, 0), new T.MeshBasicMaterial({ color: '#f0d59a', transparent: true, opacity: .65, toneMapped: false }));
+  pin.position.set(x, y, z); pin.rotation.y = .7;
+  return pin;
+}
+function workbenchModel() {
+  const g = new T.Group();
+  box(g, '#7c6446', 0, .78, 0, 1.45, .1, .4);
+  for (const x of [-.6, .6]) for (const z of [-.12, .12]) box(g, '#5d4c37', x, .38, z, .1, .76, .1);
+  box(g, '#8d724e', 0, .3, -.06, 1.36, .07, .3);
+  box(g, '#4f4a3c', 0, 1.06, -.13, 1.45, .52, .09);
+  for (let i = 0; i < 5; i++) box(g, '#9aa08f', -.5 + i * .25, 1.04, -.07, .055, .3, .05);
+  box(g, '#6c6f63', .44, .9, .1, .3, .16, .2);
+  box(g, '#c9a268', -.36, .87, .04, .48, .1, .28);
+  return g;
+}
+function radioModel() {
+  const g = new T.Group();
+  box(g, '#6d5a40', 0, .44, 0, 1.05, .08, .42);
+  for (const x of [-.42, .42]) for (const z of [-.12, .12]) box(g, '#55462f', x, .21, z, .08, .42, .08);
+  box(g, '#4a5b57', .24, .66, -.02, .58, .4, .3);
+  box(g, '#d9cfa8', .24, .66, .14, .3, .2, .02);
+  box(g, '#8f9a86', .24, .6, .16, .2, .05, .02);
+  box(g, '#9aa08f', .46, 1, -.02, .028, .44, .028);
+  box(g, '#e0d6ad', -.3, .49, 0, .4, .015, .3);
+  box(g, '#b0603f', -.3, .5, -.02, .07, .02, .07);
+  return g;
+}
+function medcabModel() {
+  const g = new T.Group();
+  box(g, '#b8b195', 0, .56, 0, .78, 1.12, .36);
+  box(g, '#8e8a74', 0, .56, .19, .7, 1.02, .02);
+  for (const x of [-.18, .18]) box(g, '#6f7a6a', x, .56, .205, .035, .9, .02);
+  for (const x of [-.18, .18]) box(g, '#575d4a', x < 0 ? -.28 : .28, .56, .215, .05, .08, .03);
+  box(g, '#bf5a47', 0, .82, .22, .3, .09, .015);
+  box(g, '#bf5a47', 0, .82, .22, .09, .3, .015);
+  box(g, '#c8c2a6', -.32, 1.14, .05, .16, .12, .16);
+  return g;
+}
+function plantModel() {
+  const g = new T.Group();
+  mesh(g, new T.CylinderGeometry(.11, .085, .16, 8), '#b0714d', 0, .08, 0);
+  mesh(g, new T.CylinderGeometry(.12, .12, .03, 8), '#6b5b42', 0, .17, 0);
+  for (let i = 0; i < 3; i++) {
+    const cone = mesh(g, new T.ConeGeometry(.15 - i * .03, .3, 6), i % 2 ? '#6f8854' : '#7d955e', 0, .32 + i * .11, 0);
+    cone.rotation.y = i * 1.2;
+  }
+  return g;
+}
+function quiltModel() {
+  const g = new T.Group();
+  box(g, '#aa694d', 0, .02, 0, .92, .06, .5);
+  box(g, '#c98a5f', 0, .06, 0, .86, .05, .44);
+  for (const z of [-.14, 0, .14]) box(g, '#e0c48e', 0, .09, z, .88, .015, .05);
+  box(g, '#83977c', -.22, .1, 0, .3, .015, .46);
+  return g;
+}
+function photosModel() {
+  const g = new T.Group();
+  box(g, '#6b5a3d', 0, 0, 0, 1.7, .025, .02);
+  for (const [x, color] of [[-.55, '#b78c64'], [-.1, '#819b94'], [.42, '#89996b']]) {
+    box(g, '#eee0bb', x, -.22, .01, .34, .4, .025);
+    box(g, color, x, -.2, .028, .26, .26, .012);
+    box(g, '#576e56', x, -.22, .04, .14, .1, .012);
+  }
+  return g;
 }
 
 export function interiorBlocked(x, z) {

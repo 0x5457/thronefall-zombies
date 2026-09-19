@@ -1,5 +1,110 @@
 # PINEFALL 开发日志
 
+## 2026-09-19 · ARC-02/03/04 完成 + 首页（开始/继续）
+**变更**
+- ARC-02：`src/main.js` 接入 `startCampaign` actor。入夜/清场/黎明/选专长/胜利/失败/RV/暂停全部走事件；`onNightStart` 生成队列、`onDawn` 冻结准备时间并开专长、`onVictory/onDefeat` 结算、`onPerkChosen` 写检查点；删除了 `setPause/manualPause` 直写，`state.phase/paused` 由 machine 单一写入。
+- ARC-03：建筑移入 `state.buildings`（纯数据：id/type/x/z/angle/r/level/hp/maxHp/invested），场景改为 `Map<id,{mesh,light,growth,cooldown,hit}>` 视图；倒木 `state.logs` 带稳定 id；`newGame()` 增加 `buildings/logs/nextBuildId`，mesh 永不出现在状态里。
+- ARC-04：新增 `src/save.js`（版本化 JSON、current/backup 双槽、损坏回退、容量/禁用/高版本拒绝且不覆写、原地恢复保持数组引用）；检查点写在新战役开始与黎明选完专长后。
+- 首页 `src/home.js` + `home.css`：真实营地黄昏环绕标题镜头、巨大 PINEFALL logo、开始新游戏 / 继续游戏（第 N 天 · 营地 % · 专长数）、已有存档时开始新游戏二次确认、点击画面在篝火溅火星；首页锁定游戏输入，HUD 隐藏。
+- 自动化钩子：webdriver 默认跳过首页，`?home=1` 强制显示；`window.__pinefall` 增加 `machine/home/startNew/continueSave` 诊断。
+
+**验证（实际执行）**
+- `npm test` 55/55（含 `tests/machine.test.js` 12 项、`tests/save.test.js` 6 项）。
+- 稳定预览（`npm run build` + `preview --port 5190`）浏览器回归全 PASS：campaign、combat、nights、nights-siege、feel、interior、rv、ambience、expanded-map、occlusion；`audio.browser.js` 按既有约定在 5173 开发服务 PASS。
+- 新增 `tests/home.browser.js` PASS：首页锁定输入（N 无效）、开始写入第 1 天检查点、覆盖二次确认不改旧档、移动端 640×780 可操作。
+- 新增 `tests/save.browser.js` PASS：真实首夜黎明写入 day 2 检查点（建筑/id 序列化、无 mesh）、首页继续回到 day 2 且建筑重建、current 损坏回退 day 1 backup、version 99 拒绝加载且原档未被覆写。
+- 构建 682.87 kB / gzip 194.55 kB（ARC-02 前基线 631.22 / 176.09；增量含 xstate 与并行 RV 会话改动，未拆分归因）；`git diff --check` 通过。
+- 截图：`artifacts/home-title.png`、`home-spark.png`、`home-continue.png`、`home-mobile.png`、`save-home-day2.png`、`save-home-refused.png`；已查看 title/mobile，房车在 logo 后方且构图完整。
+
+**未完成 / 下一步**
+- 首页观感、标题镜头与存档边界待用户实机验收；通过后 ARC-01..04 与 T6 转 DONE。
+- 五夜胜败全程实战与真实倒地仍未做；未测真实 GPU 帧时，不宣称帧率达标。
+- 存档按设计只落黎明/新战役；当日建设退出后回到本日黎明。
+
+## 2026-09-19 · RV-GAMEPLAY 房车布置闭环
+**变更**
+- 产品文档 `docs/RV_INTERIOR_PRODUCT.md`：房车=长期投资/信息/情感锚点，功能槽与防线争资源，每件家具必须当晚可见效果；明确暂不做室内战斗与自由家具编辑器。
+- 规则 `src/rules.js`：RV 家具数据（工作台/电台/医疗柜 + 3 件装饰）、槽位按天解锁、安装/拆除 60% 返还、医疗包上限 `maxMedkits`、每晚武器改装 `WEAPON_MODS`、电台时间轴 `spawnTimeline`；`unlockWeapon` 需要工作台；`advance` 黎明清改装并补给医疗柜。
+- 场景 `src/interior.js`：6 件家具模型 + 槽位标记，功能模块沿切面 z=1.6，装饰锚定台面/床/北墙，过道保持可通行；`setFurniture/setSlots` 供 UI 切换。`src/world.js`：`rvGlow` 朝营地双窗的夜光、模块色标与剪影，白天不发光。
+- UI `src/rv.js` + `index.html`：房车面板（功能/装饰分区、成本、禁用原因、安装/拆除、改装二选一）、情报页时间轴、夜战 `#radio-alert`（下一路 + 倒计时）、photo 模式隐藏角色/首领/建筑条；玻璃样式由并行 UI-01 会话重写为木牌体系，结构与文案保留。
+- 经济链：首日买工作台会挤掉一座塔；工作台+步枪需要跑一次山脊中继站（−20 生命），形成"风险换火力"的取舍。
+
+**验证（实际执行）**
+- `npm test` 55/55（新增 `tests/rv.test.js` 6 项；`tests/interior.test.js` 增加家具显隐/标记/槽位位置；`tests/combat.test.js` 武器解锁测试适配工作台门禁）。
+- `node tests/rv.browser.js` PASS：真实走到门口进车 → 装工作台 → 选射程改装（`playerRange 10`）→ 第二功能槽被拒 → 拆除返还 ▰15 ⚙2 → 装电台 → 情报页出现时间轴 → 入夜 `#radio-alert` 显示"下一路 北径"、`windowGlow > .2`。
+- `node tests/combat.browser.js` 改走"先装工作台再解锁步枪"的真实链路并通过；campaign/feel/nights/ambience/expanded-map/audio/interior/occlusion 回归全部 PASS；`npm run build`、`git diff --check` 通过。
+- 截图：`artifacts/rv-slots-day.png`、`rv-workbench-installed.png`、`rv-radio-installed.png`、`rv-intel-radio.png`、`rv-night-radio.png`、`rv-night-windows.png`；已查看，工作台/改装高亮/窗外暖光均可读。
+- 测试自身修复：`combat.browser.js` 远征耗时改为断言增量；`rv.browser.js` 无电台断言避开提示文案中的"时间轴"字样。
+
+**未完成**
+- 第 2/3 功能槽的真实跨夜浏览器验证、医疗柜跨夜补给、完整倒地、五夜实战与胜利结算仍未浏览器验收；存档 T6 未实现，布置目前只在单局内保留；窗外模块色标在默认视角不够显眼，待用户确认强度后再加码。
+
+## 2026-09-19 · UI-01 木牌营地 HUD 重构
+**变更**
+- 需求“现在的 UI 像网页 app”。移除毛玻璃、圆角胶囊和大段叙事侧栏，改为不透明木牌语言：2px 描边、硬投影、切角、铜钉、刻度条、低对比点阵底纹；中文标题用 ZCOOL QingKe HuangYou，数字/键位用 Silkscreen，正文回退 DM Sans/系统字体（Google Fonts）；常驻 HUD 只保留决策信息。
+- `index.html`：品牌名plate、资源牌内联 SVG 图标（木材/零件/营地/击退）、角色头像与带键位角标的武器/医疗包/信号弹槽、操作提示改键位列；新增 `src/ui-fx.js`（资源数值变化弹跳，尊重 reduced-motion）。
+- `src/style.css` / `src/ui-polish.css` 全量重写为同一令牌体系，覆盖顶栏、昼夜面板、工具栏、资源牌、目标卡、建造栏、角色状态、建筑面板、手册、专长、结局、加载画幕、房车布置与电台 HUD。替换了并行会话留在 ui-polish.css 的玻璃样式 RV 规则，保留其结构与排版意图。
+- 修复 `#interior-panel[hidden]`/`#radio-alert[hidden]` 被 `display:flex` 覆盖导致常驻显示的回归。
+- 未触碰 `rules.js` 数值、碰撞与存档；未改并行会话的 `main.js` 战斗/路线图代码。
+
+**验证（实际执行）**
+- `npm test` 44/44、`npm run build` 通过（CSS 35.06 kB；JS 仍 >500 kB 警告）、`git diff --check` 通过。
+- 浏览器回归 PASS：`combat`、`feel`、`nights`、`rv`、`interior`、`campaign`、`ambience`、`expanded-map`、`occlusion`、`audio`（audio 需开发服务器；构建预览下其 `script[src*="main.js"]` 选择器为空，属测试自身限制）。
+- 截图：`artifacts/ui-hud-day.png` / `ui-hud-night.png`（同机位 1440×1000）、`ui-hud-720.png`、`ui-hud-mobile.png`、`ui-hud-help.png`、`ui-hud-manual.png`、`ui-hud-building.png`；跑测试时刷新了 `rv-*`、`campaign-dawn*`、`combat-*`、`nights-intel.png` 实机截图。
+- 此前 `interior.browser.js` 的 “Execution context destroyed” 定位为 Vite HMR 在并行写文件时整页重载；对构建预览执行时稳定复现不了该问题。
+
+**未完成**
+- 字体仍依赖 Google Fonts CDN，自托管与许可证审计未做；未做参考视频逐帧比较，不宣称“优于参考”；真实 GPU 帧率未测；观感强度（描边厚度、点阵密度、资源跳动幅度）待用户确认后再迭代。
+
+## 2026-09-19 · ARC-01 状态机与规则集成骨架
+**变更**
+- 新增 `src/machine.js`：XState 5.33.2 `setup` 状态图，`phase`（day.outdoor/interior/night/dawn/victory/defeat）× `overlay`（none/paused/help/manual）并行区域；context 直接复用 `rules.js` 的 `state` 对象，不使用 `assign` 以保持引用稳定；纯函数 `advance/choosePerk` 作为 actions，场景副作用（`onNightStart/onDawn/onVictory/onDefeat/onPerkChosen/canClear/canEnterRV`）以 hook 注入。导出 `startCampaign/phaseValue/overlayValue/isInterior/effectivePaused/assertPhaseSync`。
+- 暂停语义接入：`PAUSE` 记录 `state.manualPause`，弹窗（help/manual）只临时暂停，关闭时按 `manualPause` 回到 `paused` 或 `none`，并同步 `state.paused` 供 `rules.js` 的 `active()` 继续校验。
+- 新增 `tests/machine.test.js` 12 项：初始同步、入夜/清场/黎明/选专长/第五夜胜利/营地归零失败、RV 与暂停对流转的隔离、清场 hook 注入、整局五夜循环、`perkAvailable` 与 `choosePerk` 行为一致。
+- 依赖：`xstate@5.33.2`（精确锁定）加入 `package.json`；未接 `main.js`，游戏行为不变，xstate 尚未进入应用 bundle。
+
+**验证（实际执行）**
+- `node --test tests/machine.test.js` 12/12 通过；`npm test` 44/44 通过（并行 RV 工作已同步修复旧 combat 断言，本轮未改其代码）。
+- `npm run build` 通过（631.22 kB / gzip 176.09 kB）；`git diff --check` 通过。
+
+**未完成 / 下一步**
+- ARC-02：`main.js` 接入 actor，`state.phase/paused` 判断迁移到 snapshot，跑 campaign/combat/interior/nights 浏览器回归确认行为不变。
+- 继续游戏入口 UI（启动提示 vs 标题页）待用户确认；ARC-03/04 未开始。
+
+## 2026-09-19 · ARC 状态机与存档架构设计（文档轮）
+**变更**
+- `AGENTS.md` 技术边界改为「成熟、维护活跃的依赖优先，避免自己造轮子」；每新增依赖必须说明用途与替代方案并记录到 `GAME_DESIGN.md` §10。技术边界指向新设计文档。
+- 新增 `docs/STATE_MACHINE_DESIGN.md`：XState 5.33.2 管理 `phase`（day/night/dawn/interior/victory/defeat）与 `overlay`（pause/help/manual）并行状态；context 复用 `rules.js` 的 `state`，纯函数作为 guards/actions；权威数据模型（buildings/logs 数据化）与自有版本化 JSON 存档 schema v1；存档点仅为新战役与黎明选完专长；ARC-01..04 任务与验收。
+- `GAME_DESIGN.md` §9 增加状态机/存档设计引用，§10 记录依赖策略修订与 XState 决策；`DEVELOPMENT.md` 增加 ARC 小节、T6 改为由 ARC-04 落地、下一步指向 ARC-01；`ROADMAP.md` 新增 Phase 0（ARC）并把 META-04 标注为 ARC-04 落地。
+
+**验证（实际执行）**
+- `npm run build` 通过（index.js 630.56 kB / gzip 175.82 kB，沿用现有 >500 kB 警告）；`git diff --check` 通过。本轮仅文档变更，未改代码。
+- `npm test` 25/26：`tests/combat.test.js`「weapon unlock costs scrap…」失败（第 44 行 `unlockWeapon` 返回 false）。
+- 失败原因：工作区存在并行进行中的 RV-04 家具实现（`src/rv.js`、`src/ui-fx.js`，`rules.js` 于 12:08 后给 `unlockWeapon` 增加 `rv.includes('workbench')` 前置），而 `tests/combat.test.js` 仍是旧断言。非本轮文档改动引入；未修改对方代码，避免覆盖并行工作。
+
+**未完成 / 下一步**
+- ARC-01 状态图与 Node 单测（`src/machine.js` + `tests/machine.test.js`）尚未开始；`xstate` 依赖未安装。
+- 待并行 RV-04 工作稳定后修复 `combat.test.js`（工作台前置）并跑全量测试与浏览器回归，再进入 ARC-02。
+- 继续游戏入口 UI 形式（启动提示 vs 标题页）待与用户确认。
+
+## 2026-09-19 · CMP-01 战斗深度、营地经营与画面补充
+**变更**
+- 敌人（T2）：`world.js` 新增四种独立模型（游荡者/疾行者/破阵者/林中巨影：护甲板、鹿角、发光双目），身体合并为单网格 + 双腿；`main.js` 按 `wavePlan` 的路线/间隔生成，接入种族生命/速度/伤害/护甲/赏金、护甲减伤、拆墙倍率、巨影血条与出场提示。
+- 武器（T3）：Tab 营地手册工坊，10 零件解锁并装备，`X` 快速切换；霰弹枪最多 3 目标，步枪高穿甲，HUD 显示当前武器。
+- 能力（T4）：`Shift` 冲刺（体力 30 / 0.22s / 短暂无敌）、`Q` 信号弹（半径 5 / 5s / 冷却 25s）、`F` 医疗包（60）；角色生命/体力/医疗包独立 HUD，敌人贴近会攻击角色，倒下扣营地 15 并半血复活（2.5s 保护）。
+- 建筑（T8）：点击建筑打开面板，升级（上限 3 级）重建模型并提升塔/灯/栅栏效果，维修 10 木材，拆除返还 60% 并在按钮明示。
+- 远征与情报（T9/T5）：手册远征页白天一次、扣白天预算；情报页显示波次组成、路线与危险。
+- 画面：门口挂灯与暖光、踏步石、劈柴堆、独轮车、蘑菇、独木舟、三条小径木路牌、夜间月光与角色提灯；photo 模式隐藏角色条/首领条/建筑面板。音频补充 dash/flare/heal 三种原创音效。
+- 并行完成的打击反馈（`src/feel.js`：枪口闪光、受击闪白、击退、后坐、hit-stop、镜头震动及开关）保留并与其测试共存。
+
+**验证（实际执行）**
+- `npm test` 20/20（新增 `tests/combat.test.js`）、`npm run build`、`git diff --check` 通过。
+- `node tests/combat.browser.js` PASS：真实手册远征（白天 −50s、−20 生命）→ 工坊解锁并装备步枪 → 冲刺耗体力 → 信号弹进冷却 → 医疗包边界 → 放置/选中/升级/拆除栅栏（返还 21 木材 + 2 零件）→ 首夜按北径刷出游荡者；无页面错误。
+- 生产预览回归：campaign、feel、ambience、expanded-map PASS；开发服务上 audio（含离线 WAV 渲染）、interior、occlusion PASS。接触伤害冒烟：站上北径出生点，`playerHp 100→96` 且营地 100。
+- 测试自身修复：`combat.browser.js` 关闭手册后改为等待 `paused` 复位；native dialog 的 close 事件是异步任务，原断言在事件派发前读取会偶发失败（非游戏逻辑缺陷）。
+- 截图：`artifacts/enriched-day.png`、`enriched-night.png`（1404×1080 无 HUD）、`enriched-hud-1280.png`、`enriched-manual-intel.png`、`enriched-manual-mobile.png`、`combat-manual-workshop.png`、`combat-building-panel.png`、`combat-night-typed.png`；已查看布局与可读性。
+- 未完成：第五夜巨影/破阵者实战与胜利结算未全程浏览器跑；完整倒地未实战；存档 T6、首日引导 T11、真实 GPU 帧时未做。不把目标帧率写成实测。
+
 ## 2026-09-18 · RV-ART-01 室内细节与床头灯交互
 **变更**
 - `src/interior.js`：床铺/餐区/厨房/门边补足生活陈设（坐垫毯、床尾毯、书本内页、座下储物篮、搪瓷水壶、砧板面包、擦手巾、香料罐、悬挂勺具、旅行地图、马克杯、地板条、相片绳、挂钩包），不侵入过道；室内面板新增「床头灯」开关。
@@ -96,3 +201,27 @@
 - `npm test` 6/6、`npm run build` 通过。`tests/interior.browser.js` 与 `tests/ambience.browser.js` 将 URL 替换为构建预览服务 5174 后执行并 PASS；开发服务室内回归曾因执行上下文销毁中断，未确定原因。
 - 收尾复跑 `npm test` 8/8（含并行新增规则测试）、`npm run build`、`git diff --check` 通过；室内/环境浏览器通过记录对应此前构建。
 - 已对照查看 `artifacts/occlusion-before-day.png` / `occlusion-day.png` / `occlusion-night.png`；剪影昼夜均出现，白天浅色车顶的对比更弱。状态 VERIFY，下一步用户确认强度；未比较参考视频、未测真实 GPU 帧率。构建保留 >500kB 警告。
+
+## FEEL-01 · 打击感（本轮）
+- 问题：自动射击命中缺少视听反馈，敌人瞬间消失，无后坐/击退/停顿/镜头反馈。
+- `src/feel.js`（新增）：镜头创伤（累加、trauma² 输出位移/缩放/侧倾、自动归零）、hit-stop（真实时间计时）、easeOutBack、按敌人血量的停顿/创伤档位。
+- `src/main.js`：枪口实体闪光池 + 短点光；命中闪白/后仰/击退（Boss 免疫位移、破阵者减半）；击杀 0.5 秒倒地 + 碎裂粒子 + hit-stop + 镜头震动；营地/角色受击红晕、建筑木屑抖动；建造弹出；玩家枪械后坐。震动画可在 HUD「≈」关闭并本地保存，`prefers-reduced-motion` 默认关闭。仅表现层，不改 `rules.js` 数值、碰撞、存档；粒子/闪光固定池回收。
+- 并行战斗重构已包含的闪白/倒地/停顿/震动实现予以保留，本轮只补击退、枪口实体闪光、后坐力、建造弹出，并清理重复的 `#hurt-flash` 元素与样式。
+- 验证：`npm test` 20/20（含 `tests/feel.test.js` 4 项）；`npm run build` 通过；`node tests/feel.browser.js` PASS（真实首夜战斗：枪口闪光 12、闪白 8、击退 8、后坐 12、击杀 4、hit-stop 4、震动帧 8；开关持久化与 reduced-motion 默认关闭）；`campaign`/`interior`/`ambience`/`expanded-map`/`occlusion` 浏览器回归全部 PASS；无页面错误。
+- 截图：`artifacts/feel-day.png`、`feel-night-kill.png`、`feel-night-combat.png`（同机位昼夜，已查看；夜间命中亮斑可见）。
+- 遗留：打击强度/震感需用户试玩确认；未测真实 GPU 帧率；构建仍有 >500 kB 警告。
+
+## NGT-01/02/03/04 · 夜间有题（本轮）
+- 目标：把"看塔打怪"改成"每晚一道可预判、需要构筑解答的题"。数据与行为全部由 `src/rules.js` 驱动。
+- `rules.js`：五夜课题化（单路教学/双路取舍/攻城/迷雾/综合），每组带意图标签；新增 `spitter` 腐吐者（射程 14，超远程腐蚀建筑，逼玩家离开塔防区）与 `stalker` 潜行者（迷雾中仅灯/信号弹/近距离显形）；新增纯判定 `siegeGoal`/`rangedGoal`/`revealed`。夜 1/2 组队保持不变以兼容既有战役测试。
+- `world.js`：两种新敌人独立体块模型（酸囊+发光喷口 / 低伏四足+发光双目）。
+- `main.js`：破阵者直扑最近塔；腐吐者停在射程外抛射可躲避的酸液弹，命中建筑或角色；潜行者未照亮时不可被自动射击与塔锁定；迷雾降低月光/提灯/营地灯强度与半径；情报页显示课题、环境、建议与意图标签。
+- 验证：`npm test` 26/26（新增 `tests/nights.test.js` 6 项）；`node tests/nights.browser.js` PASS；`node tests/nights-siege.browser.js` 真实推进到第 3 夜 PASS（`sieging>0`、`spits>0`，截图 `artifacts/nights-siege.png`）；`node tests/feel.browser.js` PASS；`npm run build` 通过；生产预览服务 4173 运行以保证并行编辑期间测试稳定。
+- 设计修正：腐吐者最初射程 6.5，实战被塔在射程外先手击杀、从未开火；改为 14 后才形成"必须出门清理"的真实决策。
+- 遗留：潜行者/迷雾未做逐夜浏览器实战；风向未做；ECO/META 任务待推进。并行会话已把 ARC（状态机/存档）Phase 0 并入 `docs/ROADMAP.md` 与 `DEVELOPMENT.md`。
+
+## META-01 · 黎明评分（本轮）
+- `rules.js`：新增 `dawnRating({ campLost, downs, buildingsLost, nightSeconds })`，营地损失/倒地/建筑被毁/超时扣分，60 秒内清场有速度加成，上限 100；S/A/B/C 门槛 `RATING`。
+- `main.js`：`beginNight()` 重置本轮遥测（起始营地耐久、倒地次数、建筑损毁、耗时），清场前记录结束耐久；黎明专长模态显示「评分 S（100）· 营地 −0% · 耗时 42 秒」，诊断 `stats.rating` 暴露本夜明细。
+- 验证：`npm test` 通过（新增 `tests/meta.test.js` 4 项：满分、慢速、逐项扣分、下限为 0）；`npm run build` 通过；`node tests/nights-siege.browser.js` 真实推进第 1/2/3 夜，每次黎明断言评分文案与 `stats.rating` 合法，PASS。
+- 遗留：评分尚未接入解锁（META-03）与恶兆（META-02）；五夜全流程评分对照待跑。
