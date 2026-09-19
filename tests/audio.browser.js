@@ -53,7 +53,7 @@ try {
   const result = await page.evaluate(async () => {
     const mainScript = document.querySelector('script[src*="main.js"]').src;
     const audioModule = await import(new URL('audio.js', new URL('./', mainScript)).href);
-    const { TRACKS, MUSIC_LAYERS, createSynth, createScoreBus, musicStep, EFFECTS, playEffect } = audioModule;
+    const { TRACKS, createSynth, createScoreBus, musicStep, EFFECTS, playEffect } = audioModule;
     const outputs = [];
     for (const phase of ['day','night','interior','sfx']) {
       const rate = 22050, seconds = phase === 'sfx' ? Object.keys(EFFECTS).length * 1.4 + 1 : 256 * 30 / TRACKS[phase].bpm + 2;

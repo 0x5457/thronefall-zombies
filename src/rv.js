@@ -2,7 +2,7 @@
 // Rendering stays in interior.js / world.js; this module owns the rules-to-DOM wiring.
 import {
   RV_FURNITURE, furnitureReason, installFurniture, uninstallFurniture, hasFurniture,
-  setWeaponMod, WEAPON_MODS, rvSlots, spawnTimeline, weaponDamage, weaponRange, WEAPONS,
+  setWeaponMod, WEAPON_MODS, rvSlots, spawnTimeline, weaponDamage, weaponRange,
   ENEMY_TYPES, LANES,
 } from './rules.js';
 

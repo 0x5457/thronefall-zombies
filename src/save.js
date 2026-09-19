@@ -98,7 +98,7 @@ export function resetCampaign(state) {
 export function applySave(state, save) {
   resetCampaign(state);
   for (const key of SCALAR_FIELDS) if (key in save.state) state[key] = save.state[key];
-  state.buildings.push(...save.state.buildings.map(b => ({ ...b, invested: { ...(b.invested || {}) } })));
+  state.buildings.push(...save.state.buildings.map(b => ({ ...b, invested: { ...b.invested } })));
   for (const log of state.logs) {
     const saved = save.state.logs.find(l => l.id === log.id);
     if (saved) log.remaining = saved.remaining;

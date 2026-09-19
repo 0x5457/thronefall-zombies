@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  newGame, applyArmor, wavePlan, waveSize, WAVES, ENEMY_TYPES, WEAPONS, DASH, FLARE, MEDKIT_HEAL,
+  newGame, applyArmor, wavePlan, waveSize, WAVES, ENEMY_TYPES, WEAPONS, DASH, FLARE,
   unlockWeapon, equipWeapon, damagePlayer, playerDown, tickSurvival, useFlare, heal, maxHp,
   upgrade, repair, refundValue, upgradeCost, expedition, EXPEDITIONS, MAX_LEVEL, dayReady,
 } from '../src/rules.js';

@@ -7,7 +7,8 @@ test('day/night arrangements contain seven finite, independently routed parts an
     const events = [], bus = Object.fromEntries(MUSIC_LAYERS.map(n => [n,n]));
     const synth = { play: (...args) => events.push(args) };
     for (let step = 0; step < 256; step++) musicStep(synth, bus, phase, step, step * 30 / TRACKS[phase].bpm);
-    assert.deepEqual([...new Set(events.map(e => e[0]))].sort(), MUSIC_LAYERS.filter(n => phase !== 'interior' || n !== 'drums').sort());
+    const byName = (a, b) => a.localeCompare(b);
+    assert.deepEqual([...new Set(events.map(e => e[0]))].sort(byName), MUSIC_LAYERS.filter(n => phase !== 'interior' || n !== 'drums').sort(byName));
     for (const [, , hz, at, duration, gain] of events) {
       assert.ok([hz,at,duration,gain].every(Number.isFinite));
       assert.ok(hz > 0 && at >= 0 && duration > 0 && gain > 0 && gain < .2);
