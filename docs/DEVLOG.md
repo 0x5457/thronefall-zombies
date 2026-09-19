@@ -225,3 +225,24 @@
 - `main.js`：`beginNight()` 重置本轮遥测（起始营地耐久、倒地次数、建筑损毁、耗时），清场前记录结束耐久；黎明专长模态显示「评分 S（100）· 营地 −0% · 耗时 42 秒」，诊断 `stats.rating` 暴露本夜明细。
 - 验证：`npm test` 通过（新增 `tests/meta.test.js` 4 项：满分、慢速、逐项扣分、下限为 0）；`npm run build` 通过；`node tests/nights-siege.browser.js` 真实推进第 1/2/3 夜，每次黎明断言评分文案与 `stats.rating` 合法，PASS。
 - 遗留：评分尚未接入解锁（META-03）与恶兆（META-02）；五夜全流程评分对照待跑。
+
+## 2026-09-19 · Vite+ 工具链迁移 + 全量 TypeScript + Vitest + zod 存档校验
+**变更**
+- 迁移到 Vite+ 0.3.3（`vp migrate`）：新增 `vite-plus@0.3.3`，`vite` 经 npm overrides 别名到 `@voidzero-dev/vite-plus-core`；scripts 改为 `vp dev/build/preview`；`vite.config.ts` 统一承载 `fmt`/`lint`/`test`/`base` 配置。迁移生成的 `devEngines` 固定 npm 12.0.2 会让 npm 11 直接 EBADDEVENGINES 拒绝安装，已放宽为 `npm >=11`（onFail warn），本机 npm 升级到 12.0.2。
+- 格式基线：oxfmt `singleQuote`，排除 `docs/`、`.pi/`、`.agents/`、`AGENTS.md`、`skills-lock.json`；一次全库格式化（39 文件）。修复 oxlint 的 5 个警告（未用导入、无意义 spread 回退、sort 比较器）。
+- 单测从 `node:test` 迁移到 Vitest（`import { test } from 'vite-plus/test'`），`test.include = tests/**/*.test.ts`；`package.json` 的 `test` 改为 `vp test`，新增 `check`。
+- 全量 strict TypeScript：`src/` 13 个模块 + `tests/` 24 个脚本全部 `.ts`；`tsconfig.json`（moduleResolution bundler、noEmit、不用 baseUrl）；入口改 `/src/main.ts`；`src/global.d.ts` 声明 `window.__pinefall`；E2E 用 Node 原生类型剥离直接跑 `.browser.ts`。
+- 存档校验引入 `zod@^4.6.5`：`src/save.ts` 的 `saveSchema` 取代手写字段检查（loose object 保持未知字段向前兼容），`isValidSave` 走 `safeParse`；新增 1 项校验边界单测。
+- CI：新增 `.github/workflows/ci.yml`（Node 24：`npm run check`、`npm test`、`npm run build`），deploy workflow Node 22→24。
+- 文档：`AGENTS.md` 技术边界/命令改为 TS + vp；`GAME_DESIGN.md` §10 记录 Vite+ 工具链、TypeScript、zod 决策与实测体积；`STATE_MACHINE_DESIGN.md` §6 注明 schema 校验；本文件与 `DEVELOPMENT.md` 同步。
+
+**验证（实际执行）**
+- 迁移后、TS 转换前：55/55 单测；`vp build` 通过；13 个浏览器测试全 PASS（10 个对 4173 生产预览，interior/occlusion/audio 对 5173 dev；其间清掉了迁移前遗留的旧 Vite dev server 进程）。
+- 全量 TS 后：`vp test` 11 文件 56/56；`vp check` 47 文件格式 + 39 文件 lint/类型 0 错误；`vp build` 通过；13 个浏览器测试重跑全 PASS（occlusion/audio 需 5173 dev，其余对 4173 预览）。
+- 体积：687.75 kB / gzip 193.76（zod 前）→ 772.71 kB / gzip 218.00（含 zod），+85.0 kB raw / +24.2 kB gzip；>500 kB 提示仍在，未做代码分割。
+- `npm ci` 在 npm 11 下曾被 `devEngines` 阻断，已修复并在临时目录用 `npm ci --dry-run` 复验；本机 npm 12.0.2 全流程通过。
+
+**未完成 / 下一步**
+- 用户日常使用验收后 TOL-01 转 DONE；CI 工作流尚未推送运行。
+- `vp staged`/git hooks 未启用；`zod/mini` 可作为体积优化备选。
+- `audio`/`occlusion` 浏览器测试仍依赖 dev server 动态模块路径（非本轮引入，未扩大修复范围）。

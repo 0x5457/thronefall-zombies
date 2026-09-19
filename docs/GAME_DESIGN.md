@@ -232,4 +232,10 @@ FEEL-01 首版：枪口实体闪光 + 短点光、武器色弹道、命中闪白
 
 Web 字体（UI-01）：Silkscreen（数字/键位）与 ZCOOL QingKe HuangYou（中文标题）经 Google Fonts 引入，仅影响表现层，替代方案为系统字体回退；发行前需自托管子集、离线打包并审计许可证（SIL OFL）。
 
+工具链（2026-09-19）：开发工具链统一到 Vite+ 0.3.3（项目内固定 `vite-plus@0.3.3`；`vite` 经 npm overrides 别名到 `@voidzero-dev/vite-plus-core`）。用途：dev/build（Vite 8 + Rolldown）、Vitest 单测、Oxlint/Oxfmt 检查、tsgolint 类型检查、`vp check` 聚合校验。替代方案：分别维护 vite/vitest/eslint/prettier 等独立依赖与多套配置（迁移前状态）；放弃原因是版本漂移与配置重复。属开发期依赖，不进运行时包；CI 用 Node 24 运行 `npm run check`、`npm test`、`npm run build`。
+
+TypeScript（2026-09-19）：`src/` 与 `tests/` 全量 strict TS；`vp check` 的 typeCheck 由 tsgolint（TypeScript Go）驱动，不引入 `tsc` 构建步骤（Vite/Rolldown 转译）。E2E 脚本以 Node 原生类型剥离直接运行。
+
+存档校验（2026-09-19）：引入 `zod@^4.6.5`（运行时依赖），在 `src/save.ts` 用 schema 校验不可信 localStorage JSON 并约束字段类型；替代方案：valibot（更小、生态较小）、`zod/mini`（体积更小、API 子集）、手写校验（零依赖但版本迁移时易腐化）。实测构建增量 +85.0 kB raw / +24.2 kB gzip（687.75 → 772.71 kB，gzip 193.76 → 218.00）；若后续体积敏感可切 `zod/mini`。
+
 设计变更流程：先在本文修改目标/取舍，再调整任务与代码，最后记录测试和结果。新创意进入任务候选区，不静默扩大当前里程碑。

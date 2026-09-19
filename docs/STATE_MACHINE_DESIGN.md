@@ -101,7 +101,7 @@ state = {
 ```
 
 - **存档点**：仅在「新战役开始」与「黎明选择专长完成后的 day 状态」写入（对应设计文档 §9 边界）；战斗中退出回到本日黎明，不承诺原地续玩。
-- **读取**：校验 `version` 与字段类型 → 逐版本迁移 → 用存档数据构造 context → `actor` 从 `day.outdoor` 启动 → 场景按数据重建。因为存档点永远在 day，**不需要恢复任意 XState 快照**，`phase` 字段只作校验；不兼容则走新战役流程。
+- **读取**：校验 `version` 与字段类型 → 逐版本迁移 → 用存档数据构造 context → `actor` 从 `day.outdoor` 启动 → 场景按数据重建。因为存档点永远在 day，**不需要恢复任意 XState 快照**，`phase` 字段只作校验；不兼容则走新战役流程。字段校验由 `src/save.ts` 的 `saveSchema`（zod v4）完成，版本迁移与双槽回退逻辑独立于 schema。
 - **存储**：`localStorage` 双槽 `pinefall.campaign.current` / `pinefall.campaign.backup`，先写 backup 再写 current；容量不足或禁用时提示且不影响当前局。
 - **异常**：current 损坏 → 尝试 backup；两者都失败 → 开新战役但**不覆写**损坏数据；`version` 高于当前版本 → 拒绝加载并提示，同样不覆写。
 - **入口**：启动加载完成后进入首页（`src/home.js`）：开始新游戏 / 继续游戏（显示第 N 天 · 营地 % · 专长数）；已有存档时开始新游戏需二次点击确认覆盖。首页背景使用真实营地的标题镜头（黄昏、环绕、点击篝火溅火星），webdriver 自动化默认跳过首页，`?home=1` 强制显示以便测试。

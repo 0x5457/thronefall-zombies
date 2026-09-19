@@ -15,11 +15,11 @@
 - 不自动覆盖用户已有修改，不擅自发布到 Steam 或上传商店素材。
 
 ## 每轮结束
-1. 执行相关测试与 `npm run build`；涉及交互/渲染时进行浏览器验证。
+1. 执行相关测试与 `vp build`；涉及交互/渲染时进行浏览器验证（`node tests/<name>.browser.ts`，需 dev/preview 服务）。
 2. 更新 `docs/DEVELOPMENT.md` 状态、证据与明确的下一步。
 3. 在 `docs/DEVLOG.md` 追加本轮变更、验证命令/结果、未完成事项。
 4. 画面改动保存同视角昼/夜截图到 `artifacts/`；未实际比较，不声称优于参考视频。
 5. 不把目标帧率写成实测帧率，不把浏览器版本写成 Steam-ready。
 
 ## 技术边界
-Three.js + Vite + 原生 DOM；先复用现有模块。**优先采用成熟、维护活跃的依赖解决问题，避免自己造轮子**；每新增依赖必须说明用途与替代方案并记录到 `docs/GAME_DESIGN.md` §10，禁止无用途、重复或来源不明的包。状态机与存档架构见 `docs/STATE_MACHINE_DESIGN.md`。纯规则优先放 `src/rules.js` 并使用 Node 内置测试；场景及表现代码不得成为存档权威数据。
+TypeScript（strict）+ Three.js + Vite+（Vite 8 / Rolldown / Vitest / Oxlint / Oxfmt）+ 原生 DOM；先复用现有模块。**优先采用成熟、维护活跃的依赖解决问题，避免自己造轮子**；每新增依赖必须说明用途与替代方案并记录到 `docs/GAME_DESIGN.md` §10，禁止无用途、重复或来源不明的包。状态机与存档架构见 `docs/STATE_MACHINE_DESIGN.md`。纯规则优先放 `src/rules.ts` 并使用 Vitest（`vite-plus/test`）单测；场景及表现代码不得成为存档权威数据。日常校验：`vp check`（格式 + lint + 类型）、`vp test`、`vp build`。

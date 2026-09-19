@@ -3,6 +3,16 @@
 > 本文件记录实际代码状态和已确认任务。设计讨论稿不等于功能完成。  
 > 状态：TODO / DOING / PARTIAL / VERIFY / DONE / BLOCKED
 
+## 工具链迁移 TOL-01（本轮，VERIFY）
+- 状态：`VERIFY`（迁移与自动化验证通过；待用户日常使用确认后转 DONE）。
+- Vite+ 0.3.3：全局 `vp` 已安装且未接管运行时（沿用 mise Node 26.8.1 + npm 12.0.2）；项目内固定 `vite-plus@0.3.3`，`vite` 经 npm overrides 别名到 `@voidzero-dev/vite-plus-core`（内置 Vite 8.3.0 + Rolldown 1.2.9）。测试 Vitest 4.1.11；检查 Oxfmt 0.68.0 + Oxlint 1.83.0 + tsgolint 7.0.2001。
+- 命令：`vp dev` / `vp build` / `vp preview` / `vp check`（格式+lint+类型）/ `vp test`；`package.json` 同步提供 `dev/build/preview/test/check` 脚本。
+- TypeScript：`src/`、`tests/` 全量 strict TS（`tsconfig.json`，moduleResolution bundler，不用 baseUrl）；`vite.config.ts`；`index.html` 入口改 `/src/main.ts`；`src/global.d.ts` 声明 `window.__pinefall` 诊断类型。E2E 脚本为 `tests/*.browser.ts`，用 Node 原生类型剥离直接运行（CI Node 24）。
+- 存档校验：`src/save.ts` 用 `zod@4.6.5` schema 校验不可信 JSON，替代手写字段检查，保留版本拒绝/双槽回退/不覆写语义。
+- 验证：`vp check` 全绿（47 文件格式、39 文件 lint/类型 0 错误）；`vp test` 11 文件 56/56；`vp build` 通过（772.71 kB / gzip 218.00 kB；zod 前 687.75 / 193.76，+85.0 kB raw / +24.2 kB gzip，>500 kB 提示仍在）；13 个浏览器测试在 TS 代码上全 PASS（11 个对生产预览，`audio`/`occlusion` 按既有约定需 5173 dev 服务做动态模块导入）。迁移为行为不变重构，无画面改动，未新存截图。
+- CI：新增 `.github/workflows/ci.yml`（Node 24：`npm run check` + `npm test` + `npm run build`）；deploy workflow Node 22→24。工作流尚未推送运行。
+- 遗留：`vp staged`/git hooks 未启用；`devEngines` 放宽为 `npm >=11`（vp 迁移生成时固定 npm 12.0.2，本机 npm 11 会 EBADDEVENGINES 拒绝安装）；`audio`/`occlusion` 浏览器测试依赖 dev server 的源码模块路径。
+
 ## 夜间有题 NGT-01/02/03/04（本轮，VERIFY）
 - 状态：`VERIFY`（数据、行为与浏览器验证通过；五夜全程实战与观感待用户确认）。
 - `src/rules.js`：五夜改为五个课题（单路教学/双路取舍/攻城/迷雾/综合），每组带意图标签（突击/奔袭/拆塔/远程/潜行/首领）；新增敌人 `spitter 腐吐者`（射程 14、超远程腐蚀建筑，迫使玩家离开塔防区）与 `stalker 潜行者`（迷雾中仅灯/信号弹/近距离显形）；纯判定函数 `siegeGoal`/`rangedGoal`/`revealed` 供场景调用与单测。
@@ -29,7 +39,7 @@
 - 夜晚无法跳过战斗；夜间 UI 显示剩余敌人（含未生成）。
 - 首屏在运行时 CSS 注入前已有深色背景与加载遮罩，不再短暂显示浏览器默认白底。
 - 首屏资源遮罩按营地材质、环境细节、音频图表、字体和 shader 预热阶段显示真实进度，100% 后才进入场景。
-- 防御规则模块 `src/rules.js` 已含五夜波次、专长、武器、远征、维修/升级的**规则层**；当前工作区已有一部分敌人类型、武器与 HUD 接入，完成度以任务表与实际代码为准。
+- 防御规则模块 `src/rules.ts` 已含五夜波次、专长、武器、远征、维修/升级的**规则层**；当前工作区已有一部分敌人类型、武器与 HUD 接入，完成度以任务表与实际代码为准。
 - 状态机与存档架构：设计见 `docs/STATE_MACHINE_DESIGN.md`；`xstate@5.33.2`，ARC-01..04 已实现（VERIFY），启动流程改为首页（开始新游戏 / 继续游戏）。
 
 ## 状态机与存档架构 ARC（全部实现，VERIFY）
@@ -183,9 +193,10 @@
 - 固定床铺/厨房/餐桌仅为陈设；家具布置、工坊、存档及进入镜头过渡未实现，不宣称整款游戏完成。
 
 ## 下一步（按优先级）
-1. 用户验收首页（开始/继续/覆盖确认/点击篝火火星）与存档边界（黎明检查点、坏档回退提示）；确认后 ARC-01..04 与 T6 可转 DONE。
-2. 五夜胜败实战与完整倒地流程验收；随后 T2 敌人差异化（外观 + 波次配置生成）与 NGT-01 课题化。
-3. RV-03 自由网格/旋转仍是产品待议项；RV-06 跨夜家具续玩随本次存档落地，待实测确认。
+1. 用户验收工具链迁移（`vp check` / `vp test` / `vp build` 日常使用无阻塞）后 TOL-01 转 DONE；随后按需启用 `vp staged` 钩子与 CI 首次运行。
+2. 用户验收首页（开始/继续/覆盖确认/点击篝火火星）与存档边界（黎明检查点、坏档回退提示）；确认后 ARC-01..04 与 T6 可转 DONE。
+3. 五夜胜败实战与完整倒地流程验收；随后 T2 敌人差异化（外观 + 波次配置生成）与 NGT-01 课题化。
+4. RV-03 自由网格/旋转仍是产品待议项；RV-06 跨夜家具续玩随本次存档落地，待实测确认。
 
 ## RV-ART-01 床头灯交互与室内细节（本轮）
 - `src/interior.js`：床铺/餐区/厨房/门边补足生活陈设（坐垫毯、床尾毯、书本内页、座下储物篮、搪瓷水壶、砧板面包、擦手巾、香料罐、悬挂勺具、餐区旅行地图与马克杯、地板条、墙面相片绳、门边挂钩包），均不侵入过道；室内面板新增「床头灯」开关。
