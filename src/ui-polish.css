@@ -511,6 +511,117 @@
   font-size: 11px;
 }
 
+/* ——— 战前确认 ——— */
+#confirm-dialog {
+  width: min(720px, 94vw);
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.confirm-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 12px;
+  margin: 16px 0 18px;
+}
+#confirm-intel,
+#confirm-prep {
+  padding: 14px 16px;
+  border: 2px solid var(--ink);
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 0 0 2px rgba(242, 201, 107, 0.1);
+  clip-path: var(--notch);
+}
+#confirm-dialog h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: var(--gold-hi);
+}
+.confirm-groups {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.confirm-groups li {
+  display: grid;
+  gap: 3px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--wood-600);
+  background: rgba(255, 255, 255, 0.03);
+}
+.confirm-groups strong {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--gold-hi);
+}
+.confirm-groups span {
+  font-size: 10.5px;
+  color: var(--parchment-dim);
+}
+#confirm-wind {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(242, 201, 107, 0.28);
+  background: rgba(242, 201, 107, 0.06);
+  color: var(--gold-hi);
+}
+#confirm-advice {
+  margin: 0 0 10px;
+}
+#confirm-timeline p {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 8px;
+  font-size: 10.5px;
+}
+#confirm-timeline strong {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--gold);
+}
+#confirm-timeline span {
+  color: var(--parchment-dim);
+}
+.confirm-stats {
+  margin: 0 0 10px;
+  grid-template-columns: 108px 1fr;
+  gap: 8px 10px;
+  font-size: 11.5px;
+}
+.confirm-stats dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.confirm-hint,
+.confirm-fog {
+  margin: 0;
+  font-size: 10.5px;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.confirm-actions button {
+  min-width: 132px;
+}
+.confirm-foot {
+  margin: 12px 0 0;
+  font-size: 10.5px;
+  text-align: center;
+  color: #9aa287;
+}
+.confirm-foot kbd {
+  position: static;
+}
+
 #shake {
   font-size: 15px;
   letter-spacing: 0;
@@ -566,6 +677,14 @@
   }
   #perk-dialog {
     padding: 22px 18px 18px;
+  }
+  #confirm-dialog {
+    padding: 22px 18px 18px;
+  }
+  .confirm-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin: 12px 0 14px;
   }
   #perk-options {
     grid-template-columns: 1fr;

@@ -6,7 +6,7 @@ import { mkdir } from 'node:fs/promises';
 const BASE = process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/';
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   await mkdir('artifacts', { recursive: true });
@@ -27,6 +27,21 @@ try {
     await page.mouse.down();
     await page.mouse.up();
   };
+  async function walkTo(tx: number, tz: number) {
+    for (let i = 0; i < 220; i++) {
+      const {
+        player: [x, , z],
+      } = await page.evaluate(() => window.__pinefall.stats);
+      if (Math.hypot(tx - x, tz - z) < 0.6) return;
+      const held: string[] = [];
+      if (Math.abs(tx - x) > 0.3) held.push(tx > x ? 'd' : 'a');
+      if (Math.abs(tz - z) > 0.3) held.push(tz > z ? 's' : 'w');
+      for (const key of held) await page.keyboard.down(key);
+      await page.waitForTimeout(80);
+      for (const key of held) await page.keyboard.up(key);
+    }
+    throw new Error(`walkTo failed ${tx},${tz}`);
+  }
 
   // A real dawn checkpoint: start a campaign (day-1 slot), survive night 1 and pick a perk.
   await page.goto(BASE);
@@ -38,8 +53,29 @@ try {
     ),
     1,
   );
+  // ECO-01: 25 wood cannot buy two towers (70); the mill haul plus one full log cover the gap.
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => window.__pinefall.stats.manualOpen);
+  await page.locator('[data-manual-tab="expedition"]').click();
+  await page.locator('.manual-card:has-text("旧伐木场") button').click();
+  await page.waitForFunction(() => window.__pinefall.state.wood === 60);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(
+    () => !window.__pinefall.stats.manualOpen && !window.__pinefall.state.paused,
+  );
   await build(-2, -8);
+  await walkTo(10, -7);
+  for (let swing = 1; swing <= 3; swing++) {
+    await page.waitForFunction(
+      () => !window.__pinefall.stats.collecting && window.__pinefall.stats.collectCooldown === 0,
+    );
+    await page.keyboard.press('e');
+    await page.waitForFunction((wood) => window.__pinefall.state.wood === wood, 25 + swing * 10, {
+      timeout: 5000,
+    });
+  }
   await build(8, 2);
+  await page.evaluate(() => window.__pinefall.setSpeed(20));
   await page.keyboard.press('n');
   await page.waitForFunction(() => window.__pinefall.state.perkPending, null, { timeout: 300000 });
   const before = await game();

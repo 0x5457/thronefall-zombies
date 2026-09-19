@@ -3,6 +3,67 @@
 > 本文件记录实际代码状态和已确认任务。设计讨论稿不等于功能完成。  
 > 状态：TODO / DOING / PARTIAL / VERIFY / DONE / BLOCKED
 
+## 上手冲刺批 1 + ECO-01（2026-09-19，本轮，VERIFY）
+- 状态：`VERIFY`（实现、单测、构建与浏览器验证通过；观感与“前 3 分钟是否上手”待用户实机验收）。
+- 交付：WLD-03a/b/c（引导判定 + 目标卡 + 倒木高亮 + 首夜站位提示）、FBK-01（0.45s 砍伐动作、倒木缩短/树桩、木质粒子、`chop` 砍击音效、`GATHER` 规则）、FBK-02（暂停/模态冻结、reduced-motion 降级不吞结算）、WLD-02（塔/灯/栅栏剪影级等级差异 + 选中 1–3 等级点）、ECO-01（新局 25 木/6 零件、黎明 +25/+5、倒木 3×10）、TST-01（`tests/gather.browser.ts` 纳入 runner）。
+- 关键接口：`rules.ts` 的 `GATHER`/`GUIDANCE`/`guidanceStep`/`guidanceProgress`/`collectLog`/`LOG_SWINGS`/`freshLogSwings`；`world.ts` 的 `setLogState`；`audio.ts` 的 `chop`；诊断新增 `guidance`/`collecting`/`collectCooldown`/`logsRemaining`/`levelDots`。
+- 集成修复（本会话直接修）：`world.ts` 倒木初值与 `setLogState` 改用 `freshLogSwings()`（否则 3 次采完仍不推进引导）；`building-view.ts` 的 `refit` 补回 `mesh.userData.building`（否则升级后无法点选建筑）。
+- 验证：`vp check` 全绿（71 文件格式、61 文件 0 错误）；`vp test` 14 文件 72/72（含 `guidance.test.ts`、`economy.test.ts`）；`vp build` 通过；浏览器 16/16 PASS（`GAME_URL` 4173 预览 + audio/occlusion 用 5173 dev；含 `gather`、修复后的 `campaign`、`victory`、`death`）。
+- 证据：`tests/gather.browser.ts`（真实按键：动作锁移动、结算一次 +10、冷却拒绝、暂停冻结、引导三步推进、L1→L2→L3 等级点昼夜显隐）；`tests/victory.browser.ts` 五夜真实通关（第 5 夜升级塔后 health 56–100）；`tests/death.browser.ts` 完整倒地（protection 2.40s）。
+- 截图：`artifacts/gather-prompt-day.png`、`gather-swing.png`、`wld02-levels-l1.png`/`l2.png`/`l3.png`（同机位）、`wld03-guidance-day.png`/`night.png`；已查看：L1/L3 塔剪影差异清晰、目标卡三步与倒木提示可读。
+- 未覆盖：真实 GPU 帧率未测；`chop` 音效仅验证调用路径，未做人耳试听；第 5 夜余量（health 56）提示 ECO-01 数值可再复核，不据此宣称平衡。
+
+## 全量 UI React 化（2026-09-19，本轮，VERIFY）
+- 状态：`VERIFY`（静态检查、单测与稳定浏览器回归通过；部分并行经济改动导致的测试失败不归因本轮）。
+- 架构：新增 `src/ui/`——`store.ts`（不可变快照 + `installCommands` 命令桥）、`App.tsx`（`mountUi(actor)` 根组件）、`Hud.tsx`、`BuildingPanel.tsx`、`Manual.tsx`、`RvPanel.tsx`、`Dialogs.tsx`、`use-ui.ts`、`use-dialog.ts`。`index.html` 仅保留 `<canvas>`、vignette、rv-fade、加载遮罩与入口脚本；`src/hud.ts` 删除；`src/rv.ts` 收敛为纯数据 helper（`refreshInterior`/`radioTimeline`/`radioAlert`）。
+- 状态权威：xstate 仍是 phase/overlay 唯一权威，`@xstate/react@6.1.0` 订阅 help/manual overlay；`state` 由 main 原地变更、经 `uiStore.set` 推送快照。逐帧的玩家/首领数值走 `setPlayer`/`setBoss` 变更检测，投影型元素（world-label / gather-prompt / building-level-dots / rv-door）由 React 渲染空壳、main 逐帧写样式，避免 60fps React 重渲染。
+- 交互命令：建筑升级/维修/拆除、手册工坊/远征、专长选择、入夜、跳过引导、暂停/帮助/结算、声音/震动/截图模式、房车安装/拆除/改装/床头灯全部经命令桥回到 main 的规则函数。
+- 验证：`vp check` 61 文件格式/lint/类型全绿；`vp test` 14 文件 72/72；`vp build` 通过（1066.69 kB / gzip 310.32 kB）；浏览器 PASS：home、combat、rv、interior、ambience、nights、nights-siege、save、feel、expanded-map、occlusion。黎明→选专长→入夜链路用一次性脚本实测（`perkPending` → `[data-perk]` → 对话框关闭 → `phase=night`）。
+- 不归因本轮的失败：`campaign`、`audio`（开局木材 25，买不起 35 的塔；并行 ECO-01 与旧测试期望未同步）与 `victory`/`gather`/`death`（并行会话进行中的新测试）；未代改并行代码或测试。
+- 截图：测试刷新 `combat-building-panel.png`、`combat-manual-workshop.png`、`rv-slots-day.png`、`home-title.png` 等；已查看建筑面板/手册/首页，React 渲染与旧版一致。
+- 下一步：`rules.ts` 显示文案改 id + locale（i18n 第二阶段）；并行经济改动落地后同步 campaign/audio/victory/gather/death 测试。
+
+## 组件解耦 + React/i18n/调参依赖引入（2026-09-19，VERIFY）
+- 状态：`VERIFY`（重构与已迁移部分验证通过；HUD/模态 React 化、rules 文案 i18n 化继续）。
+- 组件解耦（行为不变）：`src/gfx.ts`（mat/mesh/box/beam 与共享几何，world/interior/main 平级使用）、`src/dom.ts`（$ / maybe / el）、`src/rng.ts`（seeded）、`src/building-view.ts`（BuildingViews 统一建筑 mesh/灯/生长/受击，消除三份重复）、`src/hud.ts`（HUD 渲染，syncUI 只聚合视图数据）。`updateRvGlow` 从 `rv.ts` 移入 `world.ts`，删除 `world as unknown as RvGlowHost` 强转；`ui-fx` 由第二入口脚本改为 main.ts 导入。
+- 规则数值回迁 `rules.ts`：`BUILDING_STATS`、`TOWER`、`LANTERN`、`towerStats/lanternRadius/lanternSlow(level)`；`LANE_SPAWNS` 移入 `map.ts`；`main.ts` 不再持有平衡数值。新增单测：建筑成长单调性与封顶、lane 出生点可走且与 `LANES` 数量一致。
+- 依赖（用户确认，决策见 `GAME_DESIGN.md` §10）：运行时新增 `react/react-dom/i18next/react-i18next`；开发期 `tweakpane` + `@tweakpane/core`（类型）、`@vitejs/plugin-react`。`@xstate/react` 待 HUD 迁移安装；`react-router` 明确不引入。
+- React 首页：`src/home.tsx` 重写为 React 岛，`createHome` API 与 CSS 类名不变；`src/home.ts` 删除。i18n 管线 `src/i18n.ts` + `src/locales/{zh,en}.json`，静态打包、默认 zh，首页文案已全量迁移。
+- 调参：`src/dev-tune.ts` 在 `?tune=1` 且 DEV 挂载 Tweakpane，绑定建筑/塔灯/技能/武器/敌人数值；生产包已 grep 验证不含 tweakpane。截图 `artifacts/dev-tune-panel.png`。
+- 验证：新增/修改文件 `vp check` 全绿（10 文件格式、8 文件 lint/类型 0 错误）；`vp test` 13 文件 67/67；`vp build` 通过（1045.95 kB / gzip 304.29 kB）；`home.browser.ts`、`combat.browser.ts` PASS（home 曾因并行写入触发 Vite 重载抖动，复跑通过）；`?tune=1` 实机无页面错误。
+- 遗留/阻塞：仓库全量 `vp check` 当前红，来自并行会话未完成的引导/采集改动（`main.ts` 未使用的 `setLogState` 导入、`PinefallStats` 缺 `guidance/collecting/collectCooldown/logsRemaining/levelDots` 字段），与本轮文件无关；不代改。
+- 下一步：HUD → 建筑面板/手册/专长/结算的 React 化（接入 `@xstate/react`），随后将 `rules.ts` 显示文案改为 id + locale 并同步浏览器测试断言。
+
+## 上手冲刺计划（2026-09-19，本轮，全部 TODO，仅文档规划）
+- 背景：用户反馈“塔防感觉不好玩、第一时间没有上手欲望”，并举例“升级外观没变化、采集按 E 无动画无音效”。代码核对确认：升级模型实际有变化但默认镜头不可辨（`world.ts:517`），采集音效存在但无动作/无倒木变化（`main.ts:957`），首日引导与资源取舍未做（WLD-03、ECO-01）。
+- 设计已落 `GAME_DESIGN.md`：引导三步与完成判定（§8）、采集闭环（§5）、升级剪影级差异与等级点（§4）、ECO-01 初始数值（§4/§5）、采集音效验收口径（§8）。
+- 计划分两批：**批 1 = WLD-03a/b/c + FBK-01/02 + WLD-02 + TST-01**（可直接体验的闭环）；**批 2 = ECO-01 + ECO-02/03**（把“不痛的选择”收紧）。批 1 完成后再决定是否进入 NGT-05 战前确认。
+- 进展补充（GAP-01）：NGT-05 战前确认与 NGT-06 风向已于差距任务收口轮实现并自动化验证（见下节），无需再单独排期；用户已确认（2026-09-19）。
+- 任务拆分与验收见 `ROADMAP.md` Phase 9 与 Phase 6/8 更新；执行顺序：WLD-03a（数据判定）→ WLD-03b（目标卡/高亮）→ WLD-03c（首夜站位）→ FBK-01（采集）→ FBK-02（暂停/reduced-motion）→ WLD-02（升级外观）→ TST-01（回归入口）→ ECO-01。
+- 每项完成时必须：规则进 `rules.ts` + Vitest；交互跑浏览器测试；画面改动存同机位截图；`vp check`/`vp test`/`vp build` 全绿并更新本文件与 `DEVLOG.md`。不得以“配置已加/按钮已加”代替可操作验证。
+
+## 文档-代码差距审计与任务化（2026-09-19）
+- 目的：对照 `GAME_DESIGN.md` / `ROADMAP.md` 与 `src/`、`tests/` 实际代码，把差距转成可执行任务。本轮只改文档，不动代码。
+- 已确认缺失（已登记任务）：战前确认界面不存在，计时到点直接入夜（`main.ts` 的 `elapsed > DAY_LENGTH` 发送 `START_NIGHT`）→ NGT-05；余火守望只有 +25 生命、无体力恢复（`rules.ts` `maxHp`）→ FIX-01；current 为合法 JSON 但 schema/迁移失败时不尝试 backup（`save.ts:177`）→ ARC-05；栅栏/建筑仍是圆形阻挡（`main.ts:1847` `b.r + 0.65`）→ BLD-04；`canPlace` 只有间距/半径校验、无建造位上限与通行性校验（`main.ts:753`）→ BLD-05、ECO-03；风向只驱动植被/烟雾视觉，无弹道/火焰机制 → NGT-06（待设计确认）。
+- 文档滞后：多处引用 `src/rules.js`（实际已全量 `.ts`，含 `AGENTS.md`、`STATE_MACHINE_DESIGN.md` 头部"实现未开始"）；只记四种敌人模型（实际六种，含腐吐者/潜行者）；`GAME_DESIGN` §5 称"角色受伤/冲刺仍未接入"已过时 → FIX-03。
+- 死数据/未引用：`WAVES[].hint` 5 条无消费者、`MEDKIT_CAP` 未被引用 → FIX-02。
+- 验证缺口登记：T13 五夜实战通关（工作区已有未跟踪草稿 `tests/victory.browser.ts`）、T14 完整倒地实战、T15 夜间幽灵预览残留复现。
+- 说明：工作区存在并行未提交重构（`src/dom.ts`/`gfx.ts`/`rng.ts` 等）与未跟踪测试文件，均非本轮产物；本轮未运行、未改动代码。
+- 收口：上列任务已于同日分批实现并回归，见下节。
+
+## 差距任务收口 GAP-01（本轮，DONE）
+- 范围：审计登记的差距任务并行实现（ARC-05、FIX-01/02/03、NGT-05/06、BLD-04/05、T15、T14 适配），最后统一回归；均未触碰存档边界之外的表现数据。
+- ARC-05：`src/save.ts` 回退边界——schema/迁移失败转为下一槽，高版本仍立即拒绝且不覆写；`tests/save.test.ts` 12/12（新增 recovered、双坏、高版本锁定）。
+- FIX-01/02：余火守望体力恢复 `staminaRegen/staminaDelay`（+50% 恢复、延迟 0.3s，卡片同步，`tests/survivor.test.ts` 3 项）；`MEDKIT_CAP` 接入 `maxMedkits`；`WAVES[].hint` 已由 WLD-03a 引导消费。
+- FIX-03：`.js`→`.ts` 路径、六种敌人模型、`GAME_DESIGN` §5 过时限制、`STATE_MACHINE_DESIGN` 头部状态已同步；不改写 DEVLOG 历史。
+- NGT-05：计时到点进入 `overlay.confirm`（今晚情报/风向/准备摘要，冻结预算与输入）；返回后同日不重弹，N/按钮仍直接入夜；machine 图测试 + `tests/night-confirm.browser.ts` PASS；截图 `artifacts/night-confirm.png`。
+- NGT-06：规则层 `WINDS/nightWind/windVector/windDrift/nightIntel`（确定性五夜）+ 场景接入（酸液横漂、营火/信号弹烟焰方向、情报页与战前模态显示）；`tests/wind.test.ts`、`tests/wind.browser.ts` PASS；植被视觉风未重写（复用 `world.wind` 方向通道）；截图 `wind-intel.png`、`wind-spit.png`。
+- BLD-04/05：共享旋转 `FOOTPRINTS` 替换圆形近似（放置预览/`canPlace`/角色碰撞/拆墙判定），`sealsPlayer()` 网格洪泛防自锁并在封死时提示；`tests/footprint.test.ts`、`tests/bld.browser.ts` PASS；截图 `bld-04-fence-rotated.png`、`bld-05-blocked.png`。
+- T15：`ghostPermitted()` 统一幽灵可见性并在失败选择时清残留；`tests/ghost.browser.ts` PASS。
+- T14：倒地测试适配重平衡（延迟切入北径避免提前击杀、1× 保护窗反应），连续 2 次真实倒地 PASS（营地 −15、半血复活、保护 2.50s）。
+- 验证（实际执行）：`vp check` 全绿（78 文件格式、68 文件 lint/类型 0 错误）；`vp test` 17 文件 92/92；全量浏览器回归 19/19 PASS；`tests/victory.browser.ts` 3/3 通关（见 T13）。
+- 用户验收：2026-09-19 确认通过，本轮相关任务转 `DONE`；"到点才弹确认、N 直入"产品决策一并确认。ECO 余量按 T13 最差样本（第 5 夜 health 28）留待 ECO-01 复核。
+
 ## 工具链迁移 TOL-01（本轮，VERIFY）
 - 状态：`VERIFY`（迁移与自动化验证通过；待用户日常使用确认后转 DONE）。
 - Vite+ 0.3.3：全局 `vp` 已安装且未接管运行时（沿用 mise Node 26.8.1 + npm 12.0.2）；项目内固定 `vite-plus@0.3.3`，`vite` 经 npm overrides 别名到 `@voidzero-dev/vite-plus-core`（内置 Vite 8.3.0 + Rolldown 1.2.9）。测试 Vitest 4.1.11；检查 Oxfmt 0.68.0 + Oxlint 1.83.0 + tsgolint 7.0.2001。
@@ -11,9 +72,18 @@
 - 存档校验：`src/save.ts` 用 `zod@4.6.5` schema 校验不可信 JSON，替代手写字段检查，保留版本拒绝/双槽回退/不覆写语义。
 - 验证：`vp check` 全绿（47 文件格式、39 文件 lint/类型 0 错误）；`vp test` 11 文件 56/56；`vp build` 通过（772.71 kB / gzip 218.00 kB；zod 前 687.75 / 193.76，+85.0 kB raw / +24.2 kB gzip，>500 kB 提示仍在）；13 个浏览器测试在 TS 代码上全 PASS（11 个对生产预览，`audio`/`occlusion` 按既有约定需 5173 dev 服务做动态模块导入）。迁移为行为不变重构，无画面改动，未新存截图。
 - CI：新增 `.github/workflows/ci.yml`（Node 24：`npm run check` + `npm test` + `npm run build`）；deploy workflow Node 22→24。工作流尚未推送运行。
-- 浏览器测试统一入口：`npm run test:browser [filter]`（`scripts/browser-tests.ts` 顺序执行 `tests/*.browser.ts`，按环境变量 `GAME_URL` 指向服务；`audio`/`occlusion` 需 5173 dev）。已用 `home` 过滤实测 PASS。
+- 浏览器测试统一入口：`npm run test:browser [filter]`（`scripts/browser-tests.ts` 并发 worker 池执行 `tests/*.browser.ts`，默认并发 3、`TEST_CONCURRENCY` 覆盖；filter 支持逗号分隔如 `campaign,save`；每个文件完成后打印 PASS/FAIL 与耗时）。按 `GAME_URL` 指向服务；`audio`/`occlusion` 需 5173 dev，其余建议对 `vp preview` 稳定构建运行。夜间用例经 `window.__pinefall.setSpeed(n)` 时间缩放（20x/10x/8x），耗时见 DEVLOG。
+- 测试渲染：所有 `tests/*.browser.ts` 的 Chromium 以 `--use-angle=vulkan --enable-features=Vulkan` 启动，优先硬件 GPU（本机 SwiftShader 7–13fps → RTX 4060 Ti 60fps）；无 Vulkan 时 ANGLE 回退软件渲染，CI（仅 check/test/build）不受影响。
 - Git 钩子：`vp hooks enable` 已启用，`.vite-hooks/pre-commit`（提交时运行 `vp staged` → `vp check --fix`）；`.vite-hooks/_` 已加入 `.gitignore`。提交 `edb6d36` 实测钩子触发正常。
 - 遗留：`devEngines` 放宽为 `npm >=11`（vp 迁移生成时固定 npm 12.0.2，本机 npm 11 会 EBADDEVENGINES 拒绝安装）；`audio`/`occlusion` 浏览器测试依赖 dev server 的源码模块路径。
+
+## 五夜全程实战 VIC-01（本轮，VERIFY）
+- 状态：`VERIFY`（自动化全流程通关；用户实机观感与手感待确认）。
+- 新增 `tests/victory.browser.ts`：真实建造/开夜/选专长/夜战，不注入状态、不清敌、不跳夜；逐夜记录营地/击杀/评分，终局断言 machine `phase=victory`、`won/over`、结局弹窗文案与无页面错误。
+- 实测（生产预览 4173，单次约 13 分钟）：第 1–4 夜营地 100%（评分 S），第 5 夜巨影战结束营地 80、102/102 击杀、结局弹窗「天亮了，我们守住了。」；截图 `artifacts/victory.png`；无页面错误。
+- 设计验证：第 4 夜（迷雾）首次尝试未建灯，潜行者不可见导致营地被打穿（击杀 59 时失败）；按课题建两盏灯并持续信号弹后守住。夜 4 的“灯是唯一预警”在实战中成立。
+- 边界：`state.phase` 在胜利时保持 `night`（规则字段），终局态由 machine `victory` 表达；测试按此断言，未改动规则。
+- 注意：测试自本轮起以 `window.__pinefall.setSpeed(8)` 时间缩放运行（真实规则/刷怪/战斗，仅加速时间），稳定构建上单次约 105 秒；仍建议只跑相关用例时用 `npm run test:browser -- <filter>`。
 
 ## 夜间有题 NGT-01/02/03/04（本轮，VERIFY）
 - 状态：`VERIFY`（数据、行为与浏览器验证通过；五夜全程实战与观感待用户确认）。
@@ -47,7 +117,7 @@
 ## 状态机与存档架构 ARC（全部实现，VERIFY）
 - 设计：`docs/STATE_MACHINE_DESIGN.md`。XState 管理 `phase`（day/night/dawn/interior/victory/defeat）与 `overlay`（pause/help/manual）并行区域；context 直接复用 `rules.js` 的 `state`，纯函数作为 guards/actions，不做大规模重写。
 - 存档点仅在新战役与黎明选完专长后的 day 状态；自有版本化 JSON，不持久化 XState 内部结构。
-- ARC-01（VERIFY）：`src/machine.js` + `tests/machine.test.js`；12/12 单测覆盖合法/非法转移、RV 与暂停隔离、整局五夜循环、`perkAvailable` 与 `choosePerk` 一致性；`startCampaign()` 启动即跑 `assertPhaseSync`。
+- ARC-01（VERIFY）：`src/machine.ts` + `tests/machine.test.ts` 8 项（rules 副作用与 hooks、`canClear` 注入、整局五夜循环、暂停语义、`perkAvailable` 与 `choosePerk` 一致性）与 `tests/machine-graph.test.ts` 2 项（`toDirectedGraph` 结构冻结、9 个真实场景快照的 `getAdjacencyMap` 全事件落点矩阵并在真机 actor 复验）；`startCampaign()` 启动即跑 `assertPhaseSync`。原 12 项中 4 项纯转移拒绝测试已被图矩阵覆盖后删除。
 - ARC-02（VERIFY）：`main.js` 接入 actor——入夜/黎明/选专长/RV/暂停/营地归零全部走事件与 hooks；`state.paused`、`state.phase` 由 machine 单一写入；浏览器回归 campaign/combat/nights/nights-siege/feel/interior/rv 全 PASS。
 - ARC-03（VERIFY）：建筑数据化进 `state.buildings`（含 id/lv/hp/朝向/投入），场景改为 `Map<id, {mesh,light}>` 视图；倒木 `state.logs` 带稳定 id；存档 JSON 往返、读档重建建筑由 `tests/save.*` 验证。
 - ARC-04（VERIFY）：`src/save.js` 版本化 JSON + current/backup 双槽 + 损坏回退/容量/版本拒绝；首页 `src/home.js` 提供开始/继续与覆盖二次确认；真实首夜黎明检查点、刷新续玩、坏档回退、未来版本拒绝均由 `tests/save.browser.js` 通过。T6 随之落地。
@@ -134,11 +204,14 @@
 | T5 战前情报界面 | VERIFY | 手册情报页显示波次名、提示、组成、路线、数量与危险说明 |
 | T6 黎明检查点存档（版本化 JSON） | VERIFY | ARC-04 落地；`tests/save.test.js` 6 项 + `tests/save.browser.js` 真实黎明写入/首页续玩/坏档回退/高版本拒绝通过 |
 | T7 夜间剩余敌人计数 | DONE | 浏览器验证：`artifacts/night-counter-ui.png` |
-| T8 建筑升级/维修/拆除 | VERIFY | 点击面板 + 等级模型变化 + 60% 返还；浏览器验证放置/升级/拆除 |
+| T8 建筑升级/维修/拆除 | VERIFY | 点击面板 + 等级模型变化 + 60% 返还；浏览器验证放置/升级/拆除；外观差异过小，由 WLD-02 修正 |
 | T9 每日远征入口 | VERIFY | 手册远征页，白天一次，扣白天预算；浏览器验证山脊中继站 |
 | T10 美术：夜间树背光与地表改良 | DOING | 增加月光与角色提灯、路牌与营地杂项；夜间远林仍偏暗，待对照视频继续 |
-| T11 首日引导 | TODO | 手册与情报已就位，尚未做首日分步引导 |
+| T11 首日引导 | VERIFY | WLD-03a/b/c 已接入；`tests/gather.browser.ts` 断言三步推进；待用户实机确认 |
 | T12 性能基线（真实 GPU 60fps 实测） | TODO | headless 数字不算实测 |
+| T13 五夜实战通关与胜利结算验收 | DONE | `tests/victory.browser.ts` 连跑 3/3 PASS（真实建造/选专长/夜战，8x 夜速）；第 5 夜 health 波动 97/28/50（最低 28，ECO 余量按最差样本看），kills 102，终局 `phase=victory` + 结局弹窗，截图 `artifacts/victory.png`；待用户实机复验 |
+| T14 完整倒地实战验收 | DONE | `tests/death.browser.ts` 适配重平衡后连续 2 次 PASS：真实被击倒、营地 100→85（−15）、篝火旁半血 50 复活、保护 2.50s、保护后无额外损失；截图 `death-respawn.png`/`death-flow.png` |
+| T15 夜间幽灵预览残留修复 | DONE | `ghostPermitted()` 统一可见性（day/非暂停/非模态/非 photo/home/非室内/非过渡），失败选择清残留；`tests/ghost.browser.ts` PASS，全量回归含 combat/ghost 通过 |
 
 ### 路线图任务（详见 `docs/ROADMAP.md`，M1 可玩性拐点）
 | 任务 | 状态 | 说明 |
@@ -146,8 +219,16 @@
 | NGT-01 五夜课题化（意图/建议/呼吸） | VERIFY | 见上 NGT 段落；规则单测 + 情报浏览器验证 |
 | NGT-02 敌人意图行为（破阵者冲塔/吐息者/潜行者） | VERIFY | 真实第 3 夜观测冲塔与吐息；潜行者显形为单测覆盖 |
 | NGT-03 情报页升级 | VERIFY | `tests/nights.browser.js` 校验课题/建议/意图标签 |
-| NGT-04 夜晚环境差异（雾/能见度） | VERIFY | 第 4 夜迷雾影响灯光与潜行者显形；风向未做 |
-| ECO-01 经济重平衡 | TODO | 不能全都要 |
+| NGT-04 夜晚环境差异（雾/能见度） | VERIFY | 第 4 夜迷雾影响灯光与潜行者显形；风向拆分为 NGT-06 |
+| NGT-05 战前确认界面 | DONE | 计时到点 → `overlay.confirm`（显示今晚情报/风向/准备摘要，冻结预算与输入）；返回白天后同日不重弹，N/按钮仍直接入夜；machine 单测 + `tests/night-confirm.browser.ts` PASS；截图 `night-confirm.png` |
+| NGT-06 风向游戏性 | DONE | 规则层 `WINDS/nightWind/windDrift/nightIntel`（确定性五夜、单测）；场景接入酸液横漂、营火/信号弹烟焰方向、情报与战前模态显示；`tests/wind.browser.ts` PASS；植被视觉风未改（复用 `world.wind` 方向通道） |
+| ARC-05 存档回退边界 | DONE | current schema/迁移失败改为继续尝试 backup（高版本仍立即拒绝）；`tests/save.test.ts` 12 项（新增 4 项）含 recovered/双坏/高版本锁定 |
+| BLD-04 阻挡形状与旋转模型一致 | DONE | `FOOTPRINTS` + 点/圆/box 相交与最近距离纯函数；放置预览轮廓、`canPlace`、角色碰撞、拆墙判定共用旋转形状；`tests/footprint.test.ts` + `tests/bld.browser.ts` PASS，截图 `bld-04-fence-rotated.png` |
+| BLD-05 建造通行性校验（防自锁） | DONE | `sealsPlayer()` 网格洪泛确保放置后玩家仍能到达营地中心；封死时拒绝并提示"会把自己封死"；单测典型封死/旋转/大占地场景，截图 `bld-05-blocked.png` |
+| FIX-01 余火守望体力恢复 | DONE | `staminaRegen/staminaDelay`（+50% 恢复、延迟 0.3s），卡片文案同步；`tests/survivor.test.ts` 3 项 |
+| FIX-02 死数据与未引用清理 | DONE | `WAVES[].hint` 由 WLD-03a 引导消费；`MEDKIT_CAP` 接进 `maxMedkits` 并单测锁定权威上限 |
+| FIX-03 文档与代码同步 | DONE | `GAME_DESIGN`/`ROADMAP`/`STATE_MACHINE_DESIGN`/`RV_*`/`AGENTS.md` 的 `.js`→`.ts`、六种敌人模型、过时"未接入"与"实现未开始"表述已更新；DEVLOG 历史不改写 |
+| ECO-01 经济重平衡 | VERIFY | 新局 25 木/6 零件、黎明 +25/+5、倒木 3×10 已接入；`tests/economy.test.ts` 冻结约束；T13 实战复核第 5 夜余量后转 DONE |
 | ECO-02 白天时间压力 | TODO | 采集/远征不能全做 |
 | ECO-03 建造位上限 | TODO | 分类上限 + 剩余位 UI |
 | ECO-04 修复与耐久收紧 | TODO | 漏怪后果跨夜可见 |
@@ -155,18 +236,24 @@
 | BLD-01/02/03 建筑分支与协同 | TODO | 三级分支、协同、面板 |
 | SKL-01..04 技巧空间 | TODO | 目标优先级、冲刺、信号弹、抢修 |
 | META-02/03/04 恶兆/解锁/存档 | TODO | 重玩驱动 |
-| WLD-01/02/03 世界与引导 | TODO | 地标、营地外观、首日引导 |
+| WLD-01 外围地标与资源点 | TODO | 地标、真实远征点 |
+| WLD-02 升级外观可读性 | VERIFY | 剪影级等级差异 + 世界内等级点；同机位 1/2/3 级截图；待用户实机确认 |
+| WLD-03a/b/c 首日引导 | VERIFY | 三步引导；`guidance.test.ts` + `gather.browser.ts` 覆盖；待用户实机确认 |
+| FBK-01 采集闭环 | VERIFY | 砍伐动作 + 倒木状态 + 木质粒子 + 砍击音效；`tests/gather.browser.ts` PASS |
+| FBK-02 采集的暂停/reduced-motion 安全 | VERIFY | 暂停冻结、动效降级不吞结算；浏览器验证 |
+| TST-01 浏览器测试入口扩展 | VERIFY | `gather` 与更新后的 `campaign`/`victory`/`audio` 已纳入并全 PASS |
 
 ### 发行门槛（P2）
 桌面包、离线启动、许可证审计、本地化、崩溃报告、Steamworks、外部试玩 ≥5 人、设备矩阵——全部 TODO，不随本里程碑承诺。商业音频（录音/采样库或委托配乐）未立项，当前为运行时合成。
 
 ## 已知缺口
-1. 第五夜巨影与破阵者/疾行者的完整实战（含胜利结算）未全程浏览器验收，目前仅规则单测与首夜实战覆盖；T6/ARC 存档已落地。
-2. 角色完整倒地流程（扣营地 15、篝火旁半血复活）为单测 + 接触伤害冒烟，未在浏览器中真实倒下验收。
-3. 夜间建造栏禁用，但已选中的建筑幽灵预览可能残留（待复现，见下轮验证项）。
-4. 外围扩展区域暂无资源点/地标（等待 T11 落地）；路牌仅是视觉提示。
+1. 第五夜巨影与破阵者/疾行者的完整实战（含胜利结算）已由 `tests/victory.browser.ts` 通关 3/3 并经用户确认（T13 DONE）；ECO-01 后第 5 夜余量波动至 health 28（97/28/50），留待 ECO-01 复核，不据此宣称平衡。
+2. 角色完整倒地流程已由 `tests/death.browser.ts` 验收（T14，2 次 PASS，保护 2.50s）并经用户确认。
+3. 幽灵预览残留已由 T15 修复并有 `tests/ghost.browser.ts` 回归，用户已确认；夜间建造栏禁用行为不变。
+4. 外围扩展区域暂无资源点/地标（等待 WLD-01 落地）；路牌仅是视觉提示。
 5. 建筑被摧毁时无耐久条以外的可读反馈，暴击/闪避等未做。
 6. 首页观感、标题镜头与继续游戏信息待用户实机验收；存档只落黎明/新战役，当日建设退出后回到本日黎明是既定边界；`?home=1` 为自动化测试显示首页的钩子（webdriver 默认跳过首页）。
+7. 批 1 已实现并自动化验证，但“前 3 分钟是否知道做什么、采集与升级是否有反馈”尚未经用户实机确认；`chop` 音效未做人耳试听；真实 GPU 帧率未测。
 
 ## T1 黎明专长闭环（VERIFY）
 - 原生模态、键盘/窄屏支持；选择期间冻结时间与游戏输入，不能 Esc 跳过，已选项不重复，领取后 HUD 显示。第五夜调用胜利结算；败局仍可重开。
@@ -195,10 +282,13 @@
 - 固定床铺/厨房/餐桌仅为陈设；家具布置、工坊、存档及进入镜头过渡未实现，不宣称整款游戏完成。
 
 ## 下一步（按优先级）
-1. 用户验收工具链迁移（`vp check` / `vp test` / `vp build` 日常使用无阻塞）后 TOL-01 转 DONE；随后按需启用 `vp staged` 钩子与 CI 首次运行。
-2. 用户验收首页（开始/继续/覆盖确认/点击篝火火星）与存档边界（黎明检查点、坏档回退提示）；确认后 ARC-01..04 与 T6 可转 DONE。
-3. 五夜胜败实战与完整倒地流程验收；随后 T2 敌人差异化（外观 + 波次配置生成）与 NGT-01 课题化。
-4. RV-03 自由网格/旋转仍是产品待议项；RV-06 跨夜家具续玩随本次存档落地，待实测确认。
+1. **用户实机验收批 1**：新战役前 3 分钟是否知道做什么、采集（动作/音效/倒木变化）与升级（剪影/等级点）是否有反馈；确认后 WLD-02/03、FBK-01/02、TST-01 转 DONE。
+2. **ECO-01 复核**：按 T13 实战的第 5 夜余量决定是否微调（不据单测宣称平衡）；随后 ECO-02/03。
+3. 用户验收工具链迁移（`vp check` / `vp test` / `vp build` 日常使用无阻塞）后 TOL-01 转 DONE；随后按需启用 `vp staged` 钩子与 CI 首次运行。
+4. 用户验收首页（开始/继续/覆盖确认/点击篝火火星）与存档边界（黎明检查点、坏档回退提示）；确认后 ARC-01..04 与 T6 可转 DONE。
+5. 五夜胜败、完整倒地、战前确认与风向已用户确认并转 DONE（T13/T14/NGT-05/NGT-06，见 GAP-01）；后续留意 ECO 余量复核。
+6. RV-03 自由网格/旋转仍是产品待议项；RV-06 跨夜家具续玩随本次存档落地，待实测确认。
+7. 差距任务（ARC-05、FIX-01/02/03、NGT-05/06、BLD-04/05、T14、T15）已收口，自动化全绿；剩余路线图 TODO：ECO-02/03/04、BLD-01..03、SKL-01..04、META-02..04、WLD-01。
 
 ## RV-ART-01 床头灯交互与室内细节（本轮）
 - `src/interior.js`：床铺/餐区/厨房/门边补足生活陈设（坐垫毯、床尾毯、书本内页、座下储物篮、搪瓷水壶、砧板面包、擦手巾、香料罐、悬挂勺具、餐区旅行地图与马克杯、地板条、墙面相片绳、门边挂钩包），均不侵入过道；室内面板新增「床头灯」开关。

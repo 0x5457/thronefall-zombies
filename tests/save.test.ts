@@ -120,7 +120,7 @@ test('a reset keeps the live arrays but returns every rule field to day one', ()
   assert.equal(state.buildings, buildings);
   assert.equal(state.buildings.length, 0);
   assert.equal(state.day, 1);
-  assert.equal(state.wood, 80);
+  assert.equal(state.wood, 25);
   assert.deepEqual(state.perks, []);
 });
 
@@ -134,6 +134,59 @@ test('corrupt current falls back to the previous valid backup', () => {
   assert.equal(loaded.ok, true);
   assert.equal(loaded.recovered, true);
   assert.equal(loaded.save.state.day, 3);
+});
+
+test('a schema-invalid current falls back to the previous valid backup', () => {
+  const storage = memoryStorage();
+  const valid = campaignPayload(campaign());
+  storage.map.set(SAVE_BACKUP_KEY, JSON.stringify(valid));
+  storage.map.set(SAVE_KEY, JSON.stringify({ ...valid, phase: 'night' }));
+  const loaded = readSave(storage) as Extract<ReadSaveResult, { ok: true }>;
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.recovered, true);
+  assert.equal(loaded.save.state.day, 3);
+});
+
+test('a legacy current with no migration path falls back to the backup', () => {
+  const storage = memoryStorage();
+  const legacy = campaignPayload(campaign());
+  legacy.version = 0;
+  storage.map.set(SAVE_KEY, JSON.stringify(legacy));
+  storage.map.set(SAVE_BACKUP_KEY, JSON.stringify(campaignPayload(campaign())));
+  const loaded = readSave(storage) as Extract<ReadSaveResult, { ok: true }>;
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.recovered, true);
+  assert.equal(loaded.save.state.day, 3);
+});
+
+test('two unusable slots report corrupt and leave both untouched', () => {
+  const storage = memoryStorage();
+  const valid = campaignPayload(campaign());
+  const brokenCurrent = JSON.stringify({ ...valid, phase: 'night' });
+  const brokenBackup = JSON.stringify({
+    ...valid,
+    state: { ...valid.state, weapon: 'cannon' },
+  });
+  storage.map.set(SAVE_KEY, brokenCurrent);
+  storage.map.set(SAVE_BACKUP_KEY, brokenBackup);
+  const loaded = readSave(storage) as Extract<ReadSaveResult, { ok: false }>;
+  assert.equal(loaded.ok, false);
+  assert.equal(loaded.reason, 'corrupt');
+  assert.equal(storage.map.get(SAVE_KEY), brokenCurrent);
+  assert.equal(storage.map.get(SAVE_BACKUP_KEY), brokenBackup);
+});
+
+test('a newer current version is refused even when the backup is valid', () => {
+  const storage = memoryStorage();
+  const future = campaignPayload(campaign());
+  future.version = SAVE_VERSION + 1;
+  const stored = JSON.stringify(future);
+  storage.map.set(SAVE_KEY, stored);
+  storage.map.set(SAVE_BACKUP_KEY, JSON.stringify(campaignPayload(campaign())));
+  const loaded = readSave(storage) as Extract<ReadSaveResult, { ok: false }>;
+  assert.equal(loaded.ok, false);
+  assert.equal(loaded.reason, 'version');
+  assert.equal(storage.map.get(SAVE_KEY), stored);
 });
 
 test('a newer save version is refused without touching the stored data', () => {

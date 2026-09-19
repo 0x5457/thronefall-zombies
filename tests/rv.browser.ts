@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises';
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -58,6 +58,14 @@ try {
     );
   };
 
+  // ECO-01: the 25-wood opening cannot fund the bench-plus-radio swap; the mill haul covers it.
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => window.__pinefall.stats.manualOpen);
+  await page.locator('[data-manual-tab="expedition"]').click();
+  await page.locator('.manual-card:has-text("旧伐木场") button').click();
+  await page.waitForFunction(() => window.__pinefall.state.wood === 60);
+  await closeManual();
+
   // Day 1: the interior sells a real choice — one function slot, six cards.
   await walkTo(5.2, -6);
   await walkTo(5.4, 1.6);
@@ -69,8 +77,8 @@ try {
   await page.locator('[data-rv-install="workbench"]').click();
   await page.waitForFunction(() => window.__pinefall.stats.rv.includes('workbench'));
   const bench = await state();
-  assert.equal(bench.wood, 55);
-  assert.equal(bench.scrap, 4);
+  assert.equal(bench.wood, 35, 'mill 60 - bench 25');
+  assert.equal(bench.scrap, 5, '9 scrap - bench 4');
   await page.locator('[data-rv-mod="range"]').click();
   await page.waitForFunction(() => window.__pinefall.stats.weaponMod === 'range');
   assert.equal((await stats()).playerRange, 10, 'range mod reaches the actual weapon');
@@ -95,13 +103,13 @@ try {
   await page.locator('[data-rv-remove="workbench"]').click();
   await page.waitForFunction(() => !window.__pinefall.stats.rv.includes('workbench'));
   assert.equal((await stats()).weaponMod, null, 'removing the bench clears the mod');
-  assert.equal((await state()).wood, 70, 'bench refunds 15 wood');
-  assert.equal((await state()).scrap, 6, 'bench refunds 2 scrap');
+  assert.equal((await state()).wood, 50, 'bench refunds 15 wood');
+  assert.equal((await state()).scrap, 7, 'bench refunds 2 scrap');
   await page.locator('[data-rv-install="radio"]').click();
   await page.waitForFunction(() => window.__pinefall.stats.rv.includes('radio'));
   const radio = await state();
-  assert.equal(radio.wood, 60);
-  assert.equal(radio.scrap, 0);
+  assert.equal(radio.wood, 40, 'radio costs 10 wood');
+  assert.equal(radio.scrap, 1, 'radio costs 6 of the 7 scrap');
   assert.equal((await stats()).maxMedkits, 2, 'no cabinet, no extra kits');
   await page.screenshot({ path: 'artifacts/rv-radio-installed.png' });
   await leave();

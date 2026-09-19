@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite-plus';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  plugins: [react()],
   fmt: {
     singleQuote: true,
     ignorePatterns: ['docs/**', '.pi/**', '.agents/**', 'AGENTS.md', 'skills-lock.json'],

@@ -1,7 +1,7 @@
 # 房车内部产品文档 · RV-GAMEPLAY
 
 > 版本：1.0（2026-09-19）  
-> 状态：以 `DEVELOPMENT.md` 的任务表为准；数值以 `src/rules.js` 为运行时唯一来源。  
+> 状态：以 `DEVELOPMENT.md` 的任务表为准；数值以 `src/rules.ts` 为运行时唯一来源。
 > 关联：`docs/RV_INTERIOR_PROPOSAL.md`（空间/渲染方向）、`docs/GAME_DESIGN.md`（总设计）、`docs/ROADMAP.md`（后续阶段）。
 
 ## 1. 一句话定位
@@ -97,8 +97,8 @@
 
 ### 6.1 自动化
 - `npm test`：家具槽位解锁、成本/返还、功能槽上限、医疗上限与黎明补货、改装二选一与黎明清空、工作台门禁、下一路信息。
-- `node tests/interior.browser.js`：模块显隐、空槽标记、锁定颜色、模块不侵入过道。
-- `node tests/rv.browser.js`：真实进入房车 → 安装工作台 → 选改装 → 拆除 → 安装电台 → 情报时间轴 → 入夜后 HUD 预警与窗光。
+- `node tests/interior.browser.ts`：模块显隐、空槽标记、锁定颜色、模块不侵入过道。
+- `node tests/rv.browser.ts`：真实进入房车 → 安装工作台 → 选改装 → 拆除 → 安装电台 → 情报时间轴 → 入夜后 HUD 预警与窗光。
 - 回归：campaign / combat / feel / nights / ambience / expanded-map / audio / interior / occlusion。
 
 ### 6.2 人工
@@ -117,23 +117,23 @@
 | RV4-03 | 医疗柜闭环：上限 3 + 安装补 1 + 黎明补 1 | DONE |
 | RV5-01 | 昼夜窗光：灯开关联动 + 模块色标 | DONE |
 | RV5-02 | 剪影与无 HUD 可读性 | DONE（photo 模式已隐藏角色条/首领条/建筑面板） |
-| RV6-01 | 规则/室内单元测试 | DONE（`tests/rv.test.js`、`tests/interior.test.js`） |
-| RV6-02 | 浏览器闭环测试 | DONE（`tests/rv.browser.js`、`tests/combat.browser.js`） |
+| RV6-01 | 规则/室内单元测试 | DONE（`tests/rv.test.ts`、`tests/interior.test.ts`） |
+| RV6-02 | 浏览器闭环测试 | DONE（`tests/rv.browser.ts`、`tests/combat.browser.ts`） |
 | RV6-03 | 回归、截图、文档更新 | VERIFY（五夜实战取舍、第 2/3 槽位的真实跨夜浏览器验证仍待做） |
 
 ### 实施记录（12:00–12:50）
 
-- 规则：`src/rules.js` 新增 `RV`、`RV_FURNITURE`、`WEAPON_MODS`；`rvSlots/furnitureReason/installFurniture/uninstallFurniture/maxMedkits/setWeaponMod/weaponDamage/weaponRange/spawnTimeline`；`unlockWeapon` 增加工作台门禁；`advance` 黎明清改装并补给医疗柜；医疗包上限改由 `maxMedkits` 计算。
-- 场景：`src/interior.js` 新增 6 件家具模型与槽位标记、`setFurniture/setSlots`；功能模块沿切面 z=1.6 摆放、装饰锚定在台面/床/北墙，均不侵入过道。世界侧 `src/world.js` 新增 `rvGlow`（朝向营地两扇窗的暖光 + 每件模块的色标与剪影，仅在夜晚可见）。
-- UI：`src/rv.js` 负责房车面板、改装选择、电台时间轴与夜战预警；`index.html` 增加 `#rv-furniture`、`#radio-alert`；样式由并行会话的 UI-01 木牌体系接管。
+- 规则：`src/rules.ts` 新增 `RV`、`RV_FURNITURE`、`WEAPON_MODS`；`rvSlots/furnitureReason/installFurniture/uninstallFurniture/maxMedkits/setWeaponMod/weaponDamage/weaponRange/spawnTimeline`；`unlockWeapon` 增加工作台门禁；`advance` 黎明清改装并补给医疗柜；医疗包上限改由 `maxMedkits` 计算。
+- 场景：`src/interior.ts` 新增 6 件家具模型与槽位标记、`setFurniture/setSlots`；功能模块沿切面 z=1.6 摆放、装饰锚定在台面/床/北墙，均不侵入过道。世界侧 `src/world.ts` 新增 `rvGlow`（朝向营地两扇窗的暖光 + 每件模块的色标与剪影，仅在夜晚可见）。
+- UI：`src/rv.ts` 负责房车面板、改装选择、电台时间轴与夜战预警；`index.html` 增加 `#rv-furniture`、`#radio-alert`；样式由并行会话的 UI-01 木牌体系接管。
 - 工作台同时是武器解锁前置，这改变了首日经济：起手买工作台（▰25 ⚙4）会挤掉一座塔，跑一次山脊中继站才能同时拿到步枪。
 - 电台不回收现有免费情报（课题/建议/分路明细保留），只增加时间轴与实时预警，避免与并行完成的 NGT-03 情报升级冲突。
 
 ### 验收证据
 
-- `npm test` 55/55，含 `tests/rv.test.js`（槽位解锁、成本/返还、医疗上限与黎明补货、改装门禁与黎明清空、时间轴分组）与 `tests/interior.test.js` 家具显隐/标记/槽位位置。
-- `node tests/rv.browser.js` PASS：真实走到门口→进房车→安装工作台→选射程改装（`playerRange 10`）→第二个功能槽被拒绝→拆除返还→安装电台→情报页出现时间轴→入夜后 `#radio-alert` 显示"下一路 北径"、`windowGlow > .2`；截图 `artifacts/rv-slots-day.png`、`rv-workbench-installed.png`、`rv-radio-installed.png`、`rv-intel-radio.png`、`rv-night-radio.png`、`rv-night-windows.png`。
-- `node tests/combat.browser.js` 已改为先装工作台再解锁步枪，验证门禁后的经济链与建筑面板；campaign/feel/nights/ambience/expanded-map/audio/interior/occlusion 回归 PASS。
+- `npm test` 55/55，含 `tests/rv.test.ts`（槽位解锁、成本/返还、医疗上限与黎明补货、改装门禁与黎明清空、时间轴分组）与 `tests/interior.test.ts` 家具显隐/标记/槽位位置。
+- `node tests/rv.browser.ts` PASS：真实走到门口→进房车→安装工作台→选射程改装（`playerRange 10`）→第二个功能槽被拒绝→拆除返还→安装电台→情报页出现时间轴→入夜后 `#radio-alert` 显示"下一路 北径"、`windowGlow > .2`；截图 `artifacts/rv-slots-day.png`、`rv-workbench-installed.png`、`rv-radio-installed.png`、`rv-intel-radio.png`、`rv-night-radio.png`、`rv-night-windows.png`。
+- `node tests/combat.browser.ts` 已改为先装工作台再解锁步枪，验证门禁后的经济链与建筑面板；campaign/feel/nights/ambience/expanded-map/audio/interior/occlusion 回归 PASS。
 - 未覆盖：第 2/3 个功能槽只在单测中验证（浏览器未真实守过第 1、2 夜后再装第二件）；医疗柜的跨夜补给为单测覆盖，浏览器只验证上限展示；窗外模块色标在同机位截图中不如基础暖光醒目，待用户确认强度。
 
 ## 8. 暂不做（明确写死）

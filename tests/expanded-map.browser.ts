@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

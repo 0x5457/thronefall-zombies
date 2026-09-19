@@ -3,7 +3,7 @@ import { chromium } from '@playwright/test';
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({

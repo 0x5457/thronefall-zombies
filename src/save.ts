@@ -171,10 +171,12 @@ export function readSave(storage: Storage | null = storageOrNull()): ReadSaveRes
   for (const [slot, recovered] of slots) {
     if (!slot || slot.corrupt) continue;
     const stored = slot as CampaignSave;
+    if (typeof stored.version === 'number' && stored.version > SAVE_VERSION)
+      return { ok: false, reason: 'version' };
     const candidate = stored.version === SAVE_VERSION ? stored : migrate(stored);
-    if (!candidate) return { ok: false, reason: 'version' };
+    if (!candidate) continue;
     if (candidate.version > SAVE_VERSION) return { ok: false, reason: 'version' };
-    if (!isValidSave(candidate)) return { ok: false, reason: 'corrupt' };
+    if (!isValidSave(candidate)) continue;
     return { ok: true, save: candidate, recovered };
   }
   return { ok: false, reason: current || backup ? 'corrupt' : 'missing' };

@@ -26,6 +26,10 @@ import {
   EXPEDITIONS,
   MAX_LEVEL,
   dayReady,
+  BUILDING_STATS,
+  towerStats,
+  lanternRadius,
+  lanternSlow,
 } from '../src/rules.js';
 import type { Building } from '../src/rules.js';
 
@@ -153,11 +157,25 @@ test('building upgrade tracks invested resources and dismantling refunds 60%', (
   assert.deepEqual(upgradeCost({ level: 2 } as Building), { wood: 40, scrap: 8 });
 });
 
+test('tower and lantern growth is monotonic and clamps at the level cap', () => {
+  for (const type of ['fence', 'tower', 'lantern'] as const)
+    assert.ok(BUILDING_STATS[type].hp > 0 && BUILDING_STATS[type].r > 0);
+  for (let level = 1; level < MAX_LEVEL; level++) {
+    assert.ok(towerStats(level + 1).damage > towerStats(level).damage);
+    assert.ok(towerStats(level + 1).range > towerStats(level).range);
+    assert.ok(towerStats(level + 1).cooldown <= towerStats(level).cooldown);
+    assert.ok(lanternRadius(level + 1) > lanternRadius(level));
+    assert.ok(lanternSlow(level + 1) <= lanternSlow(level));
+  }
+  assert.ok(towerStats(MAX_LEVEL + 3).cooldown >= 0.5, 'cooldown never reaches zero');
+  assert.ok(lanternSlow(99) >= 0.4, 'slow keeps a floor');
+});
+
 test('repair works in daylight only and respects the engineer perk', () => {
   const s = newGame();
   const building = { level: 1, hp: 100, maxHp: 220, invested: {} } as Building;
   assert.equal(repair(s, building), true);
-  assert.equal(s.wood, 70);
+  assert.equal(s.wood, 15, 'repair costs 10 of the 25 starting wood');
   assert.equal(building.hp, 190, '90 repair restores a structure');
   s.perks.push('engineer');
   s.wood = 50;
@@ -175,7 +193,7 @@ test('expeditions are once per day, cost daylight, and can injure the scout', ()
   assert.equal(expedition(s, 'station'), true);
   assert.equal(s.expeditionDay, 1);
   assert.equal(s.elapsed, station.time);
-  assert.equal(s.scrap, 8 + station.scrap!);
+  assert.equal(s.scrap, 6 + station.scrap!, 'starting scrap plus the ridge haul');
   assert.equal(s.playerHp, 100 - station.injury);
   assert.equal(expedition(s, 'mill'), false, 'one trip per day');
   const hurt = newGame();

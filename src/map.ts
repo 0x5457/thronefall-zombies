@@ -1,5 +1,12 @@
 export const MAP = Object.freeze({ size: 180, half: 90, playable: 64 });
 
+// Enemy entry points, one per lane; order must match `LANES` in rules.ts.
+export const LANE_SPAWNS: readonly [number, number][] = [
+  [-2, -29],
+  [-28, -0.5],
+  [18, 9],
+];
+
 export interface CameraFocus {
   x: number;
   z: number;

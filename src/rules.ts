@@ -166,11 +166,25 @@ export const DASH = {
   regen: 22,
   delay: 0.5,
 };
+// FIX-01 余火守望: 50% faster stamina regen and a 40% shorter post-dash delay.
+export const SURVIVOR_STAMINA = { regen: DASH.regen * 1.5, delay: DASH.delay * 0.6 };
+export const staminaRegen = (s: GameState): number =>
+  s.perks.includes('survivor') ? SURVIVOR_STAMINA.regen : DASH.regen;
+export const staminaDelay = (s: GameState): number =>
+  s.perks.includes('survivor') ? SURVIVOR_STAMINA.delay : DASH.delay;
 export const FLARE = { radius: 5, duration: 5, cooldown: 25, slow: 0.38, bossSlow: 0.78 };
 export const MEDKIT_HEAL = 60;
 export const MEDKIT_BASE = 2;
 export const MEDKIT_CAP = 3;
 export const MAX_LEVEL = 3;
+export const GATHER = { reach: 3, swing: 0.45, hitAt: 0.28, cooldown: 0.35, perSwing: 10 };
+// ECO-01: a fallen log offers LOG_SWINGS swings (3 x 10 wood) before it is spent.
+export const LOG_SWINGS = 3;
+export const freshLogSwings = (): number => LOG_SWINGS;
+// ECO-01 "cannot have everything": 25 wood cannot buy a tower (35) at spawn.
+export const START_SUPPLIES = { wood: 25, scrap: 6 };
+// Dawn convoy base income; the scavenger perk adds its own bonus on top.
+export const DAWN_SUPPLIES = { wood: 25, scrap: 5, scavengerWood: 10, scavengerScrap: 3 };
 // RV layout: function slots open across days 1/2/3; decoration is available from the start.
 export const RV = { functionSlots: 3, decorSlots: 3, slotDays: [1, 2, 3] };
 export const RV_FURNITURE: Record<FurnitureId, FurnitureSpec> = {
@@ -233,6 +247,220 @@ export const WEAPON_MODS: Record<
 export const UPGRADE = { wood: 20, scrap: 4 };
 export const REPAIR_WOOD = 10;
 export const DISMANTLE_REFUND = 0.6;
+// Footprint (collision/attack), placement spacing and base durability per building.
+export interface BuildingSpec {
+  r: number;
+  placeRadius: number;
+  hp: number;
+}
+export const BUILDING_STATS: Record<BuildingType, BuildingSpec> = {
+  fence: { r: 1, placeRadius: 1.25, hp: 150 },
+  tower: { r: 1.2, placeRadius: 1.5, hp: 220 },
+  lantern: { r: 0.35, placeRadius: 0.4, hp: 220 },
+};
+// BLD-04: blocking footprint in local space, rotated by the building's `angle`. Placement
+// preview, player collision, enemy wall attacks and build spacing all share these shapes.
+export type Footprint = { kind: 'box'; hx: number; hz: number } | { kind: 'circle'; r: number };
+export const FOOTPRINTS: Record<BuildingType, Footprint> = {
+  // Fence rails span 3.25 with posts to ±1.32; the rails stick out to z ≈ -0.27.
+  fence: { kind: 'box', hx: 1.7, hz: 0.2 },
+  // Tower base corner posts reach x ±1.25 and z ±1.15 (stairs excluded on purpose).
+  tower: { kind: 'box', hx: 1.25, hz: 1.15 },
+  lantern: { kind: 'circle', r: 0.4 },
+};
+// Matches Three.js `rotation.y`: world (x, z) = (c*lx + s*lz, -s*lx + c*lz); this is the inverse.
+export function localFromWorld(angle: number, x: number, z: number): { x: number; z: number } {
+  const c = Math.cos(angle),
+    s = Math.sin(angle);
+  return { x: c * x - s * z, z: s * x + c * z };
+}
+export function pointInFootprint(
+  fp: Footprint,
+  angle: number,
+  x: number,
+  z: number,
+  px: number,
+  pz: number,
+): boolean {
+  const l = localFromWorld(angle, px - x, pz - z);
+  return fp.kind === 'circle'
+    ? l.x * l.x + l.z * l.z <= fp.r * fp.r
+    : Math.abs(l.x) <= fp.hx && Math.abs(l.z) <= fp.hz;
+}
+// Nearest distance from a point to the footprint surface; 0 while inside.
+export function distanceToFootprint(
+  fp: Footprint,
+  angle: number,
+  x: number,
+  z: number,
+  px: number,
+  pz: number,
+): number {
+  const l = localFromWorld(angle, px - x, pz - z);
+  if (fp.kind === 'circle') return Math.max(0, Math.hypot(l.x, l.z) - fp.r);
+  const dx = Math.max(Math.abs(l.x) - fp.hx, 0),
+    dz = Math.max(Math.abs(l.z) - fp.hz, 0);
+  return Math.hypot(dx, dz);
+}
+export function circleTouchesFootprint(
+  fp: Footprint,
+  angle: number,
+  x: number,
+  z: number,
+  cx: number,
+  cz: number,
+  radius: number,
+): boolean {
+  return distanceToFootprint(fp, angle, x, z, cx, cz) < radius;
+}
+const boxRadiusOnAxis = (hx: number, hz: number, angle: number, ux: number, uz: number): number => {
+  const c = Math.cos(angle),
+    s = Math.sin(angle);
+  return hx * Math.abs(c * ux - s * uz) + hz * Math.abs(s * ux + c * uz);
+};
+// Separating-axis test for two rotated boxes.
+function boxesOverlap(
+  a: Extract<Footprint, { kind: 'box' }>,
+  angleA: number,
+  ax: number,
+  az: number,
+  b: Extract<Footprint, { kind: 'box' }>,
+  angleB: number,
+  bx: number,
+  bz: number,
+): boolean {
+  const axes: [number, number][] = [
+    [Math.cos(angleA), -Math.sin(angleA)],
+    [Math.sin(angleA), Math.cos(angleA)],
+    [Math.cos(angleB), -Math.sin(angleB)],
+    [Math.sin(angleB), Math.cos(angleB)],
+  ];
+  const dx = bx - ax,
+    dz = bz - az;
+  for (const [ux, uz] of axes) {
+    const ra = boxRadiusOnAxis(a.hx, a.hz, angleA, ux, uz),
+      rb = boxRadiusOnAxis(b.hx, b.hz, angleB, ux, uz);
+    if (Math.abs(dx * ux + dz * uz) > ra + rb) return false;
+  }
+  return true;
+}
+export function footprintsOverlap(
+  a: Footprint,
+  angleA: number,
+  ax: number,
+  az: number,
+  b: Footprint,
+  angleB: number,
+  bx: number,
+  bz: number,
+): boolean {
+  if (a.kind === 'box' && b.kind === 'box')
+    return boxesOverlap(a, angleA, ax, az, b, angleB, bx, bz);
+  if (a.kind === 'circle' && b.kind === 'circle') return Math.hypot(ax - bx, az - bz) < a.r + b.r;
+  if (a.kind === 'circle') return circleTouchesFootprint(b, angleB, bx, bz, ax, az, a.r);
+  return circleTouchesFootprint(
+    a,
+    angleA,
+    ax,
+    az,
+    bx,
+    bz,
+    (b as Extract<Footprint, { kind: 'circle' }>).r,
+  );
+}
+// BLD-05: coarse flood fill over a 0.5m grid. `blocked` probes one node with the player's
+// radius already applied; enemies can break walls, so only the player needs a path.
+export interface ReachArea {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+export function canReach(
+  start: { x: number; z: number },
+  goal: { x: number; z: number },
+  area: ReachArea,
+  blocked: (x: number, z: number) => boolean,
+  cell = 0.5,
+): boolean {
+  // floor keeps every node on or inside the area (min + cols*cell <= max).
+  const cols = Math.max(1, Math.floor((area.maxX - area.minX) / cell)),
+    rows = Math.max(1, Math.floor((area.maxZ - area.minZ) / cell));
+  const nodeAt = (x: number, z: number): { cx: number; cz: number } => ({
+    cx: Math.min(cols, Math.max(0, Math.round((x - area.minX) / cell))),
+    cz: Math.min(rows, Math.max(0, Math.round((z - area.minZ) / cell))),
+  });
+  const free = (cx: number, cz: number): boolean =>
+    !blocked(area.minX + cx * cell, area.minZ + cz * cell);
+  const nearestFree = (from: { cx: number; cz: number }): { cx: number; cz: number } | null => {
+    if (free(from.cx, from.cz)) return from;
+    for (let ring = 1; ring <= 2; ring++)
+      for (let dz = -ring; dz <= ring; dz++)
+        for (let dx = -ring; dx <= ring; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+          const cx = from.cx + dx,
+            cz = from.cz + dz;
+          if (cx < 0 || cz < 0 || cx > cols || cz > rows) continue;
+          if (free(cx, cz)) return { cx, cz };
+        }
+    return null;
+  };
+  const from = nearestFree(nodeAt(start.x, start.z)),
+    to = nearestFree(nodeAt(goal.x, goal.z));
+  if (!from || !to) return false;
+  const goalIndex = to.cz * (cols + 1) + to.cx,
+    seen = new Uint8Array((cols + 1) * (rows + 1)),
+    queue = new Int32Array((cols + 1) * (rows + 1));
+  let head = 0,
+    tail = 0;
+  const startIndex = from.cz * (cols + 1) + from.cx;
+  seen[startIndex] = 1;
+  queue[tail++] = startIndex;
+  while (head < tail) {
+    const current = queue[head++];
+    if (current === goalIndex) return true;
+    const cx = current % (cols + 1),
+      cz = (current - cx) / (cols + 1);
+    for (const [nx, nz] of [
+      [cx + 1, cz],
+      [cx - 1, cz],
+      [cx, cz + 1],
+      [cx, cz - 1],
+    ] as const) {
+      if (nx < 0 || nz < 0 || nx > cols || nz > rows) continue;
+      const index = nz * (cols + 1) + nx;
+      if (seen[index]) continue;
+      seen[index] = 1;
+      if (blocked(area.minX + nx * cell, area.minZ + nz * cell)) continue;
+      queue[tail++] = index;
+    }
+  }
+  return false;
+}
+export const TOWER = {
+  damage: 2,
+  range: 12,
+  rangePerLevel: 1.6,
+  cooldown: 0.9,
+  cooldownPerLevel: 0.12,
+  minCooldown: 0.55,
+};
+export const LANTERN = {
+  radius: 5,
+  radiusPerLevel: 1.4,
+  slow: 0.55,
+  slowPerLevel: 0.07,
+  minSlow: 0.4,
+};
+export const towerStats = (level: number): { damage: number; range: number; cooldown: number } => ({
+  damage: TOWER.damage + (level - 1),
+  range: TOWER.range + (level - 1) * TOWER.rangePerLevel,
+  cooldown: Math.max(TOWER.minCooldown, TOWER.cooldown - (level - 1) * TOWER.cooldownPerLevel),
+});
+export const lanternRadius = (level: number): number =>
+  LANTERN.radius + (level - 1) * LANTERN.radiusPerLevel;
+export const lanternSlow = (level: number): number =>
+  Math.max(LANTERN.minSlow, LANTERN.slow - (level - 1) * LANTERN.slowPerLevel);
 export const ENEMY_TYPES: Record<EnemyId, EnemySpec> = {
   walker: {
     name: '游荡者',
@@ -368,6 +596,108 @@ export const WAVES: Wave[] = [
     ],
   },
 ];
+export type WindDir = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
+export type WindTier = 'light' | 'breeze' | 'strong';
+export interface WindSpec {
+  dir: WindDir;
+  angle: number;
+  tier: WindTier;
+  strength: number;
+  note: string;
+}
+// NGT-06 world compass: N = -Z (north lane), E = +X (east bank), S = +Z, W = -X.
+// `angle` is where the wind blows toward: 0 = east, PI/2 = south.
+export const WIND_DIR_ANGLE: Record<WindDir, number> = {
+  E: 0,
+  SE: Math.PI / 4,
+  S: Math.PI / 2,
+  SW: (3 * Math.PI) / 4,
+  W: Math.PI,
+  NW: (-3 * Math.PI) / 4,
+  N: -Math.PI / 2,
+  NE: -Math.PI / 4,
+};
+export const WIND_TIER_STRENGTH: Record<WindTier, number> = {
+  light: 0.35,
+  breeze: 0.6,
+  strong: 0.9,
+};
+// Acid glob lateral speed per unit of wind strength (world units per second).
+export const WIND_DRIFT_SCALE = 1.2;
+const defineWind = (dir: WindDir, tier: WindTier, note: string): WindSpec => ({
+  dir,
+  angle: WIND_DIR_ANGLE[dir],
+  tier,
+  strength: WIND_TIER_STRENGTH[tier],
+  note,
+});
+// One deterministic wind per night, indexed like WAVES; no runtime randomness.
+export const WINDS: readonly WindSpec[] = [
+  defineWind('N', 'light', '微风向北：酸液几乎不偏，首夜专注建塔。'),
+  defineWind('W', 'breeze', '西风渐起：酸液向西偏，东岸远程会略微打偏。'),
+  defineWind('E', 'strong', '强东风：酸液明显向东漂移，腐吐者更难命中营地。'),
+  defineWind('S', 'strong', '强南风：烟雾与酸液压向营地，别在下风口站桩。'),
+  defineWind('SW', 'breeze', '西南风：烟往西南散，中距离对射更稳。'),
+];
+export function nightWind(day: number): WindSpec {
+  return WINDS[Math.min(WINDS.length, Math.max(1, Math.trunc(day))) - 1];
+}
+export interface NightIntel extends Wave {
+  day: number;
+  wind: WindSpec;
+}
+// Pre-night intel payload: the wave brief plus tonight's wind, for the intel page.
+export function nightIntel(day: number): NightIntel {
+  const index = Math.min(WAVES.length, Math.max(1, Math.trunc(day))) - 1;
+  return { ...WAVES[index], day: index + 1, wind: nightWind(day) };
+}
+export function windVector(wind: WindSpec): { x: number; z: number } {
+  return { x: Math.cos(wind.angle) * wind.strength, z: Math.sin(wind.angle) * wind.strength };
+}
+// NGT-06 first pass: acid globs drift with the wind component perpendicular to the shot.
+// Returns the extra displacement after `time` seconds of flight (no full ballistics).
+export function windDrift(
+  wind: WindSpec,
+  dx: number,
+  dz: number,
+  time: number,
+): { x: number; z: number } {
+  const length = Math.hypot(dx, dz);
+  if (!length || !Number.isFinite(time) || time <= 0) return { x: 0, z: 0 };
+  const perpX = -dz / length;
+  const perpZ = dx / length;
+  const w = windVector(wind);
+  const lateral = (w.x * perpX + w.z * perpZ) * WIND_DRIFT_SCALE * time;
+  return { x: perpX * lateral, z: perpZ * lateral };
+}
+export type GuidanceStep = 'gather' | 'build' | 'fight' | 'done';
+export const GUIDANCE: Record<Exclude<GuidanceStep, 'done'>, { title: string; body: string }> = {
+  gather: {
+    title: '采集木材',
+    body: `先去营地边的倒木采一段木材。${WAVES[0].hint}`,
+  },
+  build: {
+    title: '建造瞭望塔',
+    body: `在房车北侧部署一座瞭望塔，木材 ×${COSTS.tower}。先建塔再采木也可以。`,
+  },
+  fight: {
+    title: '迎接夜晚',
+    body: '按 N 或「迎接夜晚」开始第一夜；站到北径路口，别让它们靠近营地。',
+  },
+};
+export function guidanceStep(s: GameState): GuidanceStep {
+  if (s.day !== 1 || s.phase !== 'day') return 'done';
+  if (s.buildings.some((b) => b.type === 'tower')) return 'fight';
+  if (s.logs.some((l) => l.remaining < LOG_SWINGS)) return 'build';
+  return 'gather';
+}
+export function guidanceProgress(s: GameState): { step: GuidanceStep; wood: number; logs: number } {
+  return {
+    step: guidanceStep(s),
+    wood: s.logs.reduce((n, l) => n + l.remaining, 0) * logYield(s),
+    logs: s.logs.filter((l) => l.remaining > 0).length,
+  };
+}
 export const PERKS: Record<PerkId, PerkSpec> = {
   marksman: {
     name: '林地神射手',
@@ -384,13 +714,13 @@ export const PERKS: Record<PerkId, PerkSpec> = {
   scavenger: {
     name: '拾荒老手',
     logBonus: 5,
-    currentText: '倒木每次 +5 木材；黎明额外 +15 木材、+3 零件。',
-    text: '倒木每次 +5 木材；黎明额外 +15 木材、+3 零件。',
+    currentText: '倒木每次 +5 木材；黎明额外 +10 木材、+3 零件。',
+    text: '倒木每次 +5 木材；黎明额外 +10 木材、+3 零件。',
   },
   survivor: {
     name: '余火守望',
-    currentText: '角色生命上限 +25，立即补满；倒地惩罚不变。',
-    text: '最大生命 +25，立即补满生命。',
+    currentText: '角色生命上限 +25，立即补满；冲刺体力恢复 +50%，延迟 -40%。',
+    text: '最大生命 +25，立即补满生命；冲刺体力恢复 +50%，冲刺后的恢复等待缩短 40%。',
   },
 };
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
@@ -462,8 +792,8 @@ export function newGame(): GameState {
     day: 1,
     phase: 'day',
     elapsed: 0,
-    wood: 80,
-    scrap: 8,
+    wood: START_SUPPLIES.wood,
+    scrap: START_SUPPLIES.scrap,
     health: 100,
     playerHp: 100,
     stamina: 100,
@@ -516,8 +846,10 @@ export function advance(s: GameState, cleared = false): boolean {
   } else {
     s.phase = 'day';
     s.day++;
-    s.wood += 35 + (s.perks.includes('scavenger') ? 15 : 0);
-    s.scrap += 6 + (s.perks.includes('scavenger') ? 3 : 0);
+    s.wood +=
+      DAWN_SUPPLIES.wood + (s.perks.includes('scavenger') ? DAWN_SUPPLIES.scavengerWood : 0);
+    s.scrap +=
+      DAWN_SUPPLIES.scrap + (s.perks.includes('scavenger') ? DAWN_SUPPLIES.scavengerScrap : 0);
     s.health = Math.min(100, s.health + 12);
     s.playerHp = maxHp(s);
     s.stamina = 100;
@@ -617,7 +949,14 @@ export const attackDamage = (s: GameState, base: number, tower = false): number 
     ? (PERKS[tower ? 'engineer' : 'marksman'].damageMultiplier as number)
     : 1);
 export const logYield = (s: GameState): number =>
-  10 + (s.perks.includes('scavenger') ? (PERKS.scavenger.logBonus as number) : 0);
+  GATHER.perSwing + (s.perks.includes('scavenger') ? (PERKS.scavenger.logBonus as number) : 0);
+export function collectLog(s: GameState, log: LogNode): number {
+  if (log.remaining <= 0) return 0;
+  log.remaining--;
+  const amount = logYield(s);
+  s.wood += amount;
+  return amount;
+}
 export function choosePerk(s: GameState, id: string): boolean {
   if (
     s.over ||
@@ -705,7 +1044,8 @@ export function uninstallFurniture(s: GameState, id: string): boolean {
   if (id === 'workbench') s.weaponMod = null;
   return true;
 }
-export const maxMedkits = (s: GameState): number => MEDKIT_BASE + (s.rv.includes('medcab') ? 1 : 0);
+export const maxMedkits = (s: GameState): number =>
+  Math.min(MEDKIT_CAP, MEDKIT_BASE + (s.rv.includes('medcab') ? 1 : 0));
 export const weaponModActive = (s: GameState): boolean =>
   hasFurniture(s, 'workbench') && Object.hasOwn(WEAPON_MODS, s.weaponMod || '');
 export function setWeaponMod(s: GameState, id: string | null): boolean {
@@ -759,8 +1099,10 @@ export function playerDown(s: GameState): boolean {
 export function tickSurvival(s: GameState, dt: number): void {
   if (!active(s) || !Number.isFinite(dt) || dt <= 0) return;
   s.flareCooldown = Math.max(0, s.flareCooldown - dt);
+  // FIX-01: the dash in main.ts writes base DASH.delay; clamp it to the perk-adjusted cap here.
+  s.staminaDelay = Math.min(s.staminaDelay, staminaDelay(s));
   s.staminaDelay = Math.max(0, s.staminaDelay - dt);
-  if (!s.staminaDelay) s.stamina = Math.min(100, s.stamina + DASH.regen * dt);
+  if (!s.staminaDelay) s.stamina = Math.min(100, s.stamina + staminaRegen(s) * dt);
 }
 export const upgradeCost = (b: Building): { wood: number; scrap: number } => ({
   wood: UPGRADE.wood * b.level,

@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 const URL = process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/';
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   await mkdir('artifacts', { recursive: true });
@@ -29,6 +29,7 @@ try {
   await page.keyboard.press('Tab');
 
   // The tutorial night still plays out with the real spawn plan and combat feedback.
+  await page.evaluate(() => window.__pinefall.setSpeed(20));
   await page.keyboard.press('n');
   await page.waitForFunction(() => window.__pinefall.stats.muzzleFlashes > 0, null, {
     timeout: 90000,

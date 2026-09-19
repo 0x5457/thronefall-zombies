@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 const BASE = process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/';
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   await mkdir('artifacts', { recursive: true });

@@ -1,0 +1,17 @@
+{
+  "home": {
+    "kicker": "BLACK PINE · CAMPSITE 07",
+    "title": "PINEFALL",
+    "subtitle": "松 林 余 烬",
+    "tagline1": "白昼经营营地，入夜守住房车。",
+    "tagline2": "五个夜晚之后，救援会来。",
+    "start": "开始新游戏",
+    "startHint": "DAY 01 · 新战役",
+    "confirm": "再点一次 · 覆盖进度",
+    "continue": "继续游戏",
+    "noSave": "没有找到营地记录",
+    "brokenSave": "营地记录损坏 · 只能开始新游戏",
+    "saveInfo": "第 {{day}} 天 · 营地 {{health}}% · {{perks}} 项专长",
+    "sparkHint": "轻点画面 · 篝火会溅起火星"
+  }
+}

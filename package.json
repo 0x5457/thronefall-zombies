@@ -12,14 +12,25 @@
     "check": "vp check"
   },
   "dependencies": {
+    "@xstate/react": "^6.1.0",
+    "i18next": "^26.4.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-i18next": "^17.0.14",
     "three": "^0.180.0",
     "xstate": "5.33.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",
+    "@tweakpane/core": "^2.0.5",
     "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@xstate/graph": "^3.0.4",
+    "tweakpane": "^4.0.5",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
     "vite-plus": "0.3.3"
   },

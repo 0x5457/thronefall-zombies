@@ -1,18 +1,27 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAP } from './map.js';
+import { seeded } from './rng.js';
+import { boxGeo, rockGeo, beam, box, mat, mesh } from './gfx.js';
+import { freshLogSwings } from './rules.js';
 import type { BuildingType, EnemyId, LogNode } from './rules.js';
 
 export interface Wind {
   time: { value: number };
   strength: { value: number };
+  // NGT-06: gameplay wind direction from `nightWind`, strength-scaled; smoke and fire lean on it.
+  // Vegetation keeps using time/strength only, so there is one shared visual wind, not two.
+  dir: { x: number; z: number };
 }
 export interface Tree {
   x: number;
   z: number;
   r: number;
 }
-export type WorldLog = Omit<LogNode, 'id'>;
+export type WorldLog = Omit<LogNode, 'id'> & {
+  trunk?: T.Mesh;
+  stump?: T.Mesh;
+};
 export interface RvGlow {
   panes: T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>[];
   modules: Record<string, T.Group>;
@@ -45,78 +54,8 @@ export interface World {
   rvGlow: RvGlow;
 }
 
-export function seeded(seed = 731): () => number {
-  return () => {
-    seed = (Math.imul(1664525, seed) + 1013904223) | 0;
-    return (seed >>> 0) / 4294967296;
-  };
-}
 const random = seeded();
 const rand = (a: number, b: number): number => a + random() * (b - a);
-const materials = new Map<string, T.MeshBasicMaterial | T.MeshStandardMaterial>();
-export function mat(
-  color: string | number,
-  glow = false,
-): T.MeshBasicMaterial | T.MeshStandardMaterial {
-  const key = `${color}/${glow}`;
-  if (!materials.has(key))
-    materials.set(
-      key,
-      glow
-        ? new T.MeshBasicMaterial({ color })
-        : new T.MeshStandardMaterial({ color, roughness: 1, flatShading: true }),
-    );
-  return materials.get(key)!;
-}
-const boxGeo = new T.BoxGeometry(1, 1, 1);
-const rockGeo = new T.DodecahedronGeometry(1, 0);
-export function mesh(
-  parent: T.Object3D,
-  geometry: T.BufferGeometry,
-  color: string | number | T.Material,
-  x: number,
-  y: number,
-  z: number,
-  sx = 1,
-  sy = 1,
-  sz = 1,
-  glow = false,
-): T.Mesh {
-  const m = new T.Mesh(geometry, typeof color === 'object' ? color : mat(color, glow));
-  m.position.set(x, y, z);
-  m.scale.set(sx, sy, sz);
-  m.castShadow = !glow;
-  m.receiveShadow = !glow;
-  parent.add(m);
-  return m;
-}
-export function box(
-  parent: T.Object3D,
-  color: string | number | T.Material,
-  x: number,
-  y: number,
-  z: number,
-  sx: number,
-  sy: number,
-  sz: number,
-  glow = false,
-): T.Mesh {
-  return mesh(parent, boxGeo, color, x, y, z, sx, sy, sz, glow);
-}
-function beam(
-  parent: T.Object3D,
-  color: string | number,
-  a: [number, number, number],
-  b: [number, number, number],
-  width: number,
-): T.Mesh {
-  const start = new T.Vector3(...a),
-    end = new T.Vector3(...b),
-    middle = start.clone().add(end).multiplyScalar(0.5);
-  const m = box(parent, color, middle.x, middle.y, middle.z, width, start.distanceTo(end), width);
-  m.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), end.sub(start).normalize());
-  return m;
-}
 export const shore = (z: number): number =>
   24 - 0.19 * z + Math.sin(z * 0.15) * 2.2 + Math.sin(z * 0.41) * 0.6;
 export const pathX = (z: number): number => -1.5 + Math.sin(z * 0.09) * 2.8;
@@ -543,75 +482,145 @@ function tent(parent: T.Object3D, x: number, z: number, color: string, angle: nu
 export function structure(type: BuildingType, level = 1): T.Group {
   const g = new T.Group();
   if (type === 'fence') {
+    const post = level >= 3 ? 1.72 : level >= 2 ? 1.52 : 1.35;
     for (let i = 0; i < 7; i++) {
       const x = (i - 3) * 0.44;
-      box(g, i % 2 ? '#9b7b4c' : '#aa8957', x, 0.7, 0, 0.28, 1.35, 0.24);
-      mesh(g, new T.ConeGeometry(0.2, 0.27, 4), '#b59863', x, 1.5, 0, 1, 1, 1).rotation.y =
-        Math.PI / 4;
+      box(g, i % 2 ? '#9b7b4c' : '#aa8957', x, post / 2, 0, 0.28, post, 0.24);
+      mesh(
+        g,
+        new T.ConeGeometry(level >= 2 ? 0.23 : 0.2, level >= 2 ? 0.34 : 0.27, 4),
+        '#b59863',
+        x,
+        post + 0.13,
+        0,
+      ).rotation.y = Math.PI / 4;
     }
     for (const y of [0.45, 1.03]) box(g, '#6e593a', 0, y, -0.19, 3.25, 0.17, 0.15);
     if (level >= 2) {
-      box(g, '#7d6742', 0, 1.24, -0.02, 3.25, 0.12, 0.18);
-      for (const x of [-1.98, 0.66]) beam(g, '#8a7045', [x, 0.1, 0.2], [x + 1.32, 1.18, 0.2], 0.1);
+      box(g, '#7d6742', 0, post - 0.14, -0.02, 3.25, 0.12, 0.2);
+      for (const x of [-1.98, 0.66]) {
+        beam(g, '#8a7045', [x, 0.1, 0.2], [x + 1.32, 1.18, 0.2], 0.1);
+        beam(g, '#8a7045', [x, 1.18, 0.2], [x + 1.32, 0.1, 0.2], 0.1);
+      }
     }
-    if (level >= 3)
-      for (let i = 0; i < 7; i += 2) box(g, '#929a90', (i - 3) * 0.44, 1.68, 0, 0.22, 0.14, 0.22);
+    if (level >= 3) {
+      box(g, '#5d6546', 0, post + 0.05, 0, 3.42, 0.12, 0.32);
+      for (const x of [-1.42, 1.42]) {
+        box(g, '#676b54', x, (post + 0.52) / 2, 0, 0.34, post + 0.52, 0.3);
+        box(g, '#929a90', x, post + 0.6, 0, 0.42, 0.16, 0.38);
+      }
+    }
   } else if (type === 'tower') {
+    const top = level >= 3 ? 5.7 : level >= 2 ? 4.75 : 3.8;
+    const deck = top - 0.64;
     for (const x of [-0.94, 0.94])
       for (const z of [-0.85, 0.85]) {
-        beam(g, '#887047', [x * 1.1, 0, z * 1.1], [x, 3.8, z], 0.2);
+        beam(g, '#887047', [x * 1.1, 0, z * 1.1], [x, top, z], 0.2);
         box(g, '#afa38a', x * 1.1, 0.13, z * 1.1, 0.43, 0.26, 0.43);
       }
     for (const z of [-0.85, 0.85]) {
-      beam(g, '#a18a59', [-1, 0.6, z], [1, 2.95, z], 0.13);
-      beam(g, '#79633f', [1, 0.6, z], [-1, 2.95, z], 0.13);
+      beam(g, '#a18a59', [-1, 0.6, z], [1, top - 0.85, z], 0.13);
+      beam(g, '#79633f', [1, 0.6, z], [-1, top - 0.85, z], 0.13);
+    }
+    if (level >= 2) {
+      box(g, '#79633f', 0, deck - 0.18, 0, 3, 0.22, 2.85);
+      for (const z of [-0.85, 0.85])
+        beam(g, '#8a7045', [-1.04, deck * 0.5, z], [1.04, deck * 0.5, z], 0.11);
     }
     for (let i = 0; i < 9; i++)
-      box(g, i % 2 ? '#ae905e' : '#9f8455', 0, 3.16, (i - 4) * 0.26, 2.5, 0.17, 0.23);
+      box(g, i % 2 ? '#ae905e' : '#9f8455', 0, deck, (i - 4) * 0.26, 2.5, 0.17, 0.23);
     for (const x of [-1.08, 1.08]) {
-      box(g, '#b19766', x, 3.75, 0, 0.13, 0.97, 2.25);
-      box(g, '#d3b37a', x, 4.28, 0, 0.2, 0.15, 2.5);
+      box(g, '#b19766', x, deck + 0.59, 0, 0.13, 0.97, 2.25);
+      box(g, '#d3b37a', x, deck + 1.12, 0, 0.2, 0.15, 2.5);
     }
-    box(g, '#b79b6a', 0, 3.76, -1.09, 2.13, 0.94, 0.14);
-    box(g, '#d3b37a', 0, 4.28, -1.1, 2.5, 0.15, 0.21);
-    for (const x of [-0.47, 0.47]) beam(g, '#bda476', [x, 0.1, 1.62], [x, 3.35, 1.05], 0.095);
-    for (let i = 0; i < 9; i++) box(g, '#ccb182', 0, 0.2 + i * 0.35, 1.58 - i * 0.06, 1, 0.07, 0.1);
+    box(g, '#b79b6a', 0, deck + 0.6, -1.09, 2.13, 0.94, 0.14);
+    box(g, '#d3b37a', 0, deck + 1.12, -1.1, 2.5, 0.15, 0.21);
+    if (level >= 2)
+      for (const x of [-1.08, 1.08])
+        for (const z of [-1.09, 1.09]) box(g, '#8a7045', x, deck + 0.86, z, 0.15, 0.5, 0.15);
+    for (const x of [-0.47, 0.47]) beam(g, '#bda476', [x, 0.1, 1.62], [x, deck + 0.2, 1.05], 0.095);
+    const steps = Math.max(9, Math.ceil((deck - 0.5) / 0.35));
+    for (let i = 0; i < steps; i++)
+      box(g, '#ccb182', 0, 0.2 + (i * (deck - 0.5)) / (steps - 1), 1.58 - i * 0.06, 1, 0.07, 0.1);
     const guard = character();
-    guard.position.set(0, 3.27, 0);
+    guard.position.set(0, deck + 0.11, 0);
     guard.scale.setScalar(0.78);
     g.add(guard);
-    box(g, '#5d6546', 1.05, 4.8, -0.8, 0.065, 1.5, 0.065);
-    box(g, '#b66d42', 1.38, 5.25, -0.8, 0.66, 0.41, 0.045);
-    if (level >= 2) {
-      box(g, '#5d6546', 1.05, 4.8, 0.8, 0.065, 1.5, 0.065);
-      box(g, '#6f8fa8', 1.38, 5.25, 0.8, 0.66, 0.41, 0.045);
+    const flag = level >= 3 ? '#a8452f' : '#b66d42';
+    const flags: [number, string][] = [[-0.8, flag]];
+    if (level >= 2) flags.push([0.8, level >= 3 ? flag : '#6f8fa8']);
+    for (const [z, color] of flags) {
+      box(g, '#5d6546', 1.05, deck + 1.64, z, 0.065, 1.5, 0.065);
+      box(g, color, 1.38, deck + 2.09, z, 0.66, 0.41, 0.045);
     }
     if (level >= 3) {
-      box(g, '#a88b52', 0, 4.62, 0, 0.46, 0.36, 0.46);
-      box(g, '#ffe0a0', 0, 4.9, 0, 0.26, 0.2, 0.26, true);
+      box(g, '#5d6546', 0, deck + 1.6, 0, 0.12, 0.4, 0.12);
+      box(g, '#a88b52', 0, deck + 1.86, 0, 0.62, 0.12, 0.62);
+      box(g, '#ffe0a0', 0, deck + 2.26, 0, 0.52, 0.68, 0.52, true);
+      for (const [x, z] of [
+        [-0.26, -0.26],
+        [0.26, -0.26],
+        [-0.26, 0.26],
+        [0.26, 0.26],
+      ])
+        box(g, '#5d6546', x, deck + 2.26, z, 0.06, 0.78, 0.06);
+      box(g, '#6b5539', 0, deck + 2.7, 0, 0.74, 0.13, 0.74);
+      box(g, '#a88b52', 0, deck + 2.8, 0, 0.12, 0.12, 0.12);
     }
   } else {
+    const post = level >= 3 ? 4.15 : level >= 2 ? 3.6 : 3.1;
+    const lamp = level >= 2 ? 1.16 : 1;
+    const lampY = post - 0.57;
     box(g, '#676b54', 0, 0.1, 0, 0.6, 0.2, 0.6);
-    box(g, '#846f49', 0, 1.6, 0, 0.15, 3.1, 0.15);
-    beam(g, '#a28c5a', [0, 3.1, 0], [0.9, 3.1, 0], 0.12);
-    box(g, '#544e37', 0.78, 2.83, 0, 0.035, 0.52, 0.035);
-    box(g, '#ffe0a0', 0.78, 2.53, 0, 0.34, 0.43, 0.34, true);
-    for (const y of [2.28, 2.77]) box(g, '#62573c', 0.78, y, 0, 0.45, 0.08, 0.45);
-    for (const x of [0.59, 0.97])
-      for (const z of [-0.19, 0.19]) box(g, '#6c5a3b', x, 2.53, z, 0.035, 0.43, 0.035);
-    if (level >= 2) {
-      beam(g, '#a28c5a', [0, 3.1, 0], [-0.9, 3.1, 0], 0.12);
-      box(g, '#544e37', -0.78, 2.83, 0, 0.035, 0.52, 0.035);
-      box(g, '#ffe0a0', -0.78, 2.53, 0, 0.34, 0.43, 0.34, true);
-      for (const x of [-0.97, -0.59])
-        for (const z of [-0.19, 0.19]) box(g, '#6c5a3b', x, 2.53, z, 0.035, 0.43, 0.035);
+    if (level >= 3) mesh(g, new T.CylinderGeometry(0.5, 0.66, 0.42, 9), '#676b54', 0, 0.21, 0);
+    box(
+      g,
+      '#846f49',
+      0,
+      post / 2 + 0.05,
+      0,
+      level >= 2 ? 0.19 : 0.15,
+      post,
+      level >= 2 ? 0.19 : 0.15,
+    );
+    for (const side of level >= 2 ? [-1, 1] : [1]) {
+      beam(g, '#a28c5a', [0, post, 0], [side * 0.9, post, 0], 0.12);
+      box(g, '#544e37', side * 0.78, lampY + 0.3 * lamp, 0, 0.035, 0.52 * lamp, 0.035);
+      box(g, '#ffe0a0', side * 0.78, lampY, 0, 0.34 * lamp, 0.43 * lamp, 0.34 * lamp, true);
+      for (const y of [lampY - 0.25 * lamp, lampY + 0.24 * lamp])
+        box(g, '#62573c', side * 0.78, y, 0, 0.45 * lamp, 0.08, 0.45 * lamp);
+      for (const x of [side * 0.78 - 0.19 * lamp, side * 0.78 + 0.19 * lamp])
+        for (const z of [-0.19, 0.19]) box(g, '#6c5a3b', x, lampY, z, 0.035, 0.43 * lamp, 0.035);
     }
     if (level >= 3) {
-      mesh(g, new T.CylinderGeometry(0.55, 0.68, 0.46, 9), '#676b54', 0, 0.23, 0);
-      box(g, '#ffe0a0', 0, 3.34, 0, 0.24, 0.24, 0.24, true);
+      box(g, '#544e37', 0, post + 0.42, 0, 0.06, 0.8, 0.06);
+      box(g, '#62573c', 0, post + 0.9, 0, 0.46, 0.08, 0.46);
+      box(g, '#ffe0a0', 0, post + 1.16, 0, 0.34, 0.42, 0.34, true);
+      for (const [x, z] of [
+        [-0.18, -0.18],
+        [0.18, -0.18],
+        [-0.18, 0.18],
+        [0.18, 0.18],
+      ])
+        box(g, '#6c5a3b', x, post + 1.16, z, 0.03, 0.46, 0.03);
+      box(g, '#544e37', 0, post + 1.44, 0, 0.52, 0.1, 0.52);
+      box(g, '#846f49', 0, post + 1.52, 0, 0.07, 0.1, 0.07);
     }
   }
   return g;
+}
+
+export function setLogState(log: WorldLog, remaining: number): void {
+  const trunk = log.trunk;
+  if (!trunk) return;
+  const s = Math.max(0, Math.min(1, remaining / freshLogSwings()));
+  if (!s) {
+    trunk.visible = false;
+    return;
+  }
+  trunk.visible = true;
+  trunk.scale.set(0.82 + 0.18 * s, s, 0.82 + 0.18 * s);
+  trunk.position.x = -1.6 * (1 - s);
 }
 interface StaticBatch {
   material: T.Material;
@@ -682,7 +691,7 @@ export function makeWorld(scene: T.Scene): World {
     forest = new T.Group(),
     meadow = new T.Group();
   scene.add(fixed, forest, meadow);
-  const wind: Wind = { time: { value: 0 }, strength: { value: 1 } };
+  const wind: Wind = { time: { value: 0 }, strength: { value: 1 }, dir: { x: 0, z: 0 } };
   const ground = mesh(
     fixed,
     new T.PlaneGeometry(MAP.size, MAP.size),
@@ -779,6 +788,8 @@ export function makeWorld(scene: T.Scene): World {
       true,
     );
     f.userData.seed = random() * 10;
+    f.userData.baseX = f.position.x;
+    f.userData.baseZ = f.position.z;
   }
   const fireLight = new T.PointLight('#ffb84f', 30, 18, 1.5);
   fireLight.position.set(0.1, 1.7, 5.6);
@@ -978,6 +989,8 @@ export function makeWorld(scene: T.Scene): World {
   const lightWire = new T.Line(new T.BufferGeometry().setFromPoints(wire), wireMat);
   scene.add(lightWire);
   const logs: WorldLog[] = [];
+  const logRoot = new T.Group();
+  scene.add(logRoot);
   for (const [x, z, a] of [
     [-12, 7, -0.2],
     [10, -7, 0.4],
@@ -985,24 +998,19 @@ export function makeWorld(scene: T.Scene): World {
     [9, 14, 1.4],
   ]) {
     const g = new T.Group();
-    fixed.add(g);
+    logRoot.add(g);
     g.position.set(x, 0, z);
     g.rotation.y = a;
     const trunk = mesh(g, new T.CylinderGeometry(0.36, 0.43, 3.2, 7), '#695236', 0, 0.42, 0);
     trunk.rotation.z = Math.PI / 2;
-    for (const side of [-1, 1]) {
-      const cut = mesh(
-        g,
-        new T.CylinderGeometry(0.3, 0.3, 0.015, 9),
-        '#b3a075',
-        side * 1.61,
-        0.42,
-        0,
-      );
-      cut.rotation.z = Math.PI / 2;
-    }
-    beam(g, '#6f5838', [0.3, 0.5, 0], [0.5, 1.1, 0.5], 0.13);
-    logs.push({ x, z, remaining: 4 });
+    for (const side of [-1, 1])
+      mesh(trunk, new T.CylinderGeometry(0.3, 0.3, 0.015, 9), '#b3a075', 0, side * 1.61, 0);
+    beam(trunk, '#6f5838', [0.08, -0.3, 0], [0.68, -0.5, 0.5], 0.13);
+    const stump = mesh(g, new T.CylinderGeometry(0.45, 0.5, 0.35, 7), '#6b5539', -1.72, 0.175, 0);
+    mesh(stump, new T.CylinderGeometry(0.45, 0.45, 0.015, 7), '#b3a075', 0, 0.18, 0);
+    const log: WorldLog = { x, z, remaining: freshLogSwings() };
+    Object.defineProperties(log, { trunk: { value: trunk }, stump: { value: stump } });
+    logs.push(log);
   }
   // Dock disappearing into the blue-green water.
   const dock = new T.Group();
@@ -1112,4 +1120,30 @@ function rvWindowGlow(scene: T.Scene): RvGlow {
   mark('quilt', -2.65, 1.9, '#d98a8a', null);
   mark('photos', -2.65, 2.4, '#f5e2b0', null);
   return { panes, modules };
+}
+// Window glow view: only at night, warm baseline plus one mark per installed module.
+export function updateRvGlow(
+  glow: RvGlow | null | undefined,
+  owned: readonly string[],
+  daylight: number,
+  lampOn: boolean,
+  time: number,
+): void {
+  if (!glow) return;
+  const night = 1 - daylight,
+    lit = night > 0.03;
+  for (const pane of glow.panes) {
+    pane.visible = lit;
+    if (lit) pane.material.opacity = night * (lampOn ? 0.72 : 0.13);
+  }
+  for (const [id, group] of Object.entries(glow.modules)) {
+    const on = lit && owned.includes(id);
+    group.visible = on;
+    if (!on) continue;
+    const pulse = 0.85 + Math.sin(time * 2.6 + id.length) * 0.15;
+    group.children.forEach((child, index) => {
+      const material = (child as T.Mesh).material as T.Material & { opacity: number };
+      material.opacity = night * pulse * (index === 0 ? 0.95 : 0.6);
+    });
+  }
 }

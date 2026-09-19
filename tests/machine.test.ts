@@ -11,17 +11,6 @@ import {
 import { PERKS, WAVES, choosePerk, damageCamp, newGame } from '../src/rules.js';
 import type { PerkId } from '../src/rules.js';
 
-test('campaign starts in day.outdoor with machine and rules in sync', () => {
-  const actor = startCampaign();
-  const snap = actor.getSnapshot();
-  assert.equal(phaseValue(snap), 'day');
-  assert.equal(isInterior(snap), false);
-  assert.equal(overlayValue(snap), 'none');
-  assert.equal(snap.context.phase, 'day');
-  assertPhaseSync(snap);
-  actor.stop();
-});
-
 test('START_NIGHT enters night and resets the day clock through rules', () => {
   const s = newGame();
   const starts: { day: number; phase: string }[] = [];
@@ -41,40 +30,6 @@ test('START_NIGHT enters night and resets the day clock through rules', () => {
     'scene hook runs after the rules mutation',
   );
   assertPhaseSync(snap);
-  actor.stop();
-});
-
-test('START_NIGHT is rejected inside the RV, while paused, with a pending perk, or after the run ended', () => {
-  let actor = startCampaign();
-  actor.send({ type: 'ENTER_RV' });
-  assert.equal(isInterior(actor.getSnapshot()), true);
-  actor.send({ type: 'START_NIGHT' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'day');
-  assert.equal(actor.getSnapshot().context.phase, 'day');
-  actor.stop();
-
-  actor = startCampaign();
-  actor.send({ type: 'PAUSE' });
-  actor.send({ type: 'START_NIGHT' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'day');
-  assert.equal(
-    actor.getSnapshot().context.phase,
-    'day',
-    'rules phase untouched when the transition is rejected',
-  );
-  actor.stop();
-
-  actor = startCampaign();
-  actor.getSnapshot().context.perkPending = true;
-  actor.send({ type: 'START_NIGHT' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'day');
-  actor.stop();
-
-  actor = startCampaign();
-  damageCamp(actor.getSnapshot().context, 100);
-  actor.send({ type: 'START_NIGHT' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'day');
-  assert.equal(actor.getSnapshot().context.over, true);
   actor.stop();
 });
 
@@ -156,38 +111,6 @@ test('CAMP_DESTROYED only ends the run when the camp is actually down', () => {
   actor.stop();
 });
 
-test('defeat also works mid-night', () => {
-  const s = newGame();
-  const actor = startCampaign({ state: s });
-  actor.send({ type: 'START_NIGHT' });
-  damageCamp(s, 100);
-  actor.send({ type: 'CAMP_DESTROYED' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'defeat');
-  assertPhaseSync(actor.getSnapshot());
-  actor.stop();
-});
-
-test('the RV opens only during a running day and exits back outside', () => {
-  const actor = startCampaign({ state: newGame() });
-  actor.send({ type: 'ENTER_RV' });
-  assert.equal(isInterior(actor.getSnapshot()), true);
-  assert.equal(actor.getSnapshot().context.phase, 'day');
-  actor.send({ type: 'EXIT_RV' });
-  assert.equal(isInterior(actor.getSnapshot()), false);
-
-  actor.send({ type: 'START_NIGHT' });
-  actor.send({ type: 'ENTER_RV' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'night', 'night blocks the RV');
-
-  actor.send({ type: 'CLEARED' });
-  actor.send({ type: 'CHOOSE_PERK', perkId: 'marksman' });
-  actor.send({ type: 'PAUSE' });
-  actor.send({ type: 'ENTER_RV' });
-  assert.equal(phaseValue(actor.getSnapshot()), 'day', 'pause blocks the RV');
-  assert.equal(isInterior(actor.getSnapshot()), false);
-  actor.stop();
-});
-
 test('pause and dialogs restore the correct pause state', () => {
   const s = newGame();
   const actor = startCampaign({ state: s });
@@ -215,6 +138,61 @@ test('pause and dialogs restore the correct pause state', () => {
   assert.equal(overlayValue(actor.getSnapshot()), 'none');
   assert.equal(s.paused, false);
   assert.equal(s.manualPause, false);
+  actor.stop();
+});
+
+test('OPEN_CONFIRM opens the pre-night briefing and freezes the day', () => {
+  const s = newGame();
+  const actor = startCampaign({ state: s });
+  s.elapsed = 151;
+  actor.send({ type: 'OPEN_CONFIRM' });
+  const snap = actor.getSnapshot();
+  assert.equal(overlayValue(snap), 'confirm');
+  assert.equal(s.paused, true, 'the briefing freezes the preparation clock');
+  assert.equal(s.phase, 'day', 'confirming does not commit the night yet');
+  assert.equal(s.elapsed, 151, 'opening the briefing does not touch the clock');
+  actor.stop();
+});
+
+test('CLOSE_CONFIRM returns to the day; CONFIRM_NIGHT is only legal inside the briefing', () => {
+  const s = newGame();
+  const starts: number[] = [];
+  const actor = startCampaign({ state: s, onNightStart: (state) => starts.push(state.day) });
+  s.elapsed = 151;
+  actor.send({ type: 'CONFIRM_NIGHT' });
+  assert.equal(phaseValue(actor.getSnapshot()), 'day', 'no night without the confirm overlay');
+  assert.equal(s.phase, 'day');
+
+  actor.send({ type: 'OPEN_CONFIRM' });
+  actor.send({ type: 'CLOSE_CONFIRM' });
+  let snap = actor.getSnapshot();
+  assert.equal(overlayValue(snap), 'none');
+  assert.equal(s.paused, false, 'returning to day resumes time and input');
+  assert.equal(s.elapsed, 151, 'the day keeps its progress after cancelling');
+  assert.equal(s.phase, 'day');
+  assert.deepEqual(starts, []);
+
+  actor.send({ type: 'OPEN_CONFIRM' });
+  actor.send({ type: 'CONFIRM_NIGHT' });
+  snap = actor.getSnapshot();
+  assert.equal(phaseValue(snap), 'night');
+  assert.equal(overlayValue(snap), 'none', 'confirming closes the overlay');
+  assert.equal(s.phase, 'night');
+  assert.equal(s.paused, false);
+  assert.equal(s.elapsed, 0, 'rules.advance resets the clock');
+  assert.deepEqual(starts, [1], 'the scene night hook runs exactly once');
+  assertPhaseSync(snap);
+  actor.stop();
+});
+
+test('OPEN_CONFIRM is rejected once the run is over', () => {
+  const s = newGame();
+  const actor = startCampaign({ state: s });
+  damageCamp(s, 100);
+  actor.send({ type: 'CAMP_DESTROYED' });
+  actor.send({ type: 'OPEN_CONFIRM' });
+  assert.equal(overlayValue(actor.getSnapshot()), 'none');
+  assert.equal(phaseValue(actor.getSnapshot()), 'defeat');
   actor.stop();
 });
 

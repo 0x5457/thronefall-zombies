@@ -4,7 +4,7 @@ import { OrthographicCamera, Vector3 } from 'three';
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -45,16 +45,61 @@ try {
     await page.locator(`[data-perk="${id}"]`).click();
     await page.waitForFunction(() => !window.__pinefall.state.perkPending);
   }
-  // Night 1: proven two-tower defense near the north path.
+  async function takeMill() {
+    const before = await page.evaluate(() => window.__pinefall.state.wood);
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(() => window.__pinefall.stats.manualOpen);
+    await page.locator('[data-manual-tab="expedition"]').click();
+    await page.locator('.manual-card:has-text("旧伐木场") button').click();
+    await page.waitForFunction((wood) => window.__pinefall.state.wood >= wood, before + 35);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(
+      () => !window.__pinefall.stats.manualOpen && !window.__pinefall.state.paused,
+    );
+  }
+  async function walkTo(tx: number, tz: number) {
+    for (let i = 0; i < 220; i++) {
+      const {
+        player: [x, , z],
+      } = await page.evaluate(() => window.__pinefall.stats);
+      if (Math.hypot(tx - x, tz - z) < 0.6) return;
+      const held: string[] = [];
+      if (Math.abs(tx - x) > 0.3) held.push(tx > x ? 'd' : 'a');
+      if (Math.abs(tz - z) > 0.3) held.push(tz > z ? 's' : 'w');
+      for (const key of held) await page.keyboard.down(key);
+      await page.waitForTimeout(80);
+      for (const key of held) await page.keyboard.up(key);
+    }
+    throw new Error(`walkTo failed ${tx},${tz}`);
+  }
+  async function gatherLog() {
+    await walkTo(10, -7);
+    for (let swing = 1; swing <= 3; swing++) {
+      await page.waitForFunction(
+        () => !window.__pinefall.stats.collecting && window.__pinefall.stats.collectCooldown === 0,
+      );
+      const before = await page.evaluate(() => window.__pinefall.state.wood);
+      await page.keyboard.press('e');
+      await page.waitForFunction((wood) => window.__pinefall.state.wood >= wood, before + 10, {
+        timeout: 5000,
+      });
+    }
+  }
+  // Night 1 (ECO-01): the mill haul plus one full log fund two towers (70 wood).
+  await takeMill();
+  await gatherLog();
   await build('tower', -2, -8);
   await build('tower', 8, 2);
+  await page.evaluate(() => window.__pinefall.setSpeed(10));
   await page.keyboard.press('n');
   await perk('marksman');
   // Night 2: add a west tower for the runner lane.
+  await takeMill();
   await build('tower', -9, -6);
   await page.keyboard.press('n');
   await perk('engineer');
   // Night 3: one more tower, then observe siege + spit behavior.
+  await takeMill();
   await build('tower', 4, -6);
   await page.keyboard.press('n');
   const max = { sieging: 0, spits: 0, hidden: 0 };

@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 const URL = process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/';
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   await mkdir('artifacts', { recursive: true });
@@ -42,6 +42,7 @@ try {
   assert.equal((await stats()).shakeEnabled, true);
   await page.screenshot({ path: 'artifacts/feel-day.png' });
 
+  await page.evaluate(() => window.__pinefall.setSpeed(10));
   await page.keyboard.press('n');
   assert.equal((await state()).phase, 'night');
   await page.waitForFunction(() => window.__pinefall.stats.muzzleFlashes > 0, null, {

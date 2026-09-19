@@ -500,6 +500,49 @@ button:active {
   box-shadow: inset 0 0 0 2px rgba(207, 112, 72, 0.5);
 }
 
+#gather-prompt,
+#building-level-dots {
+  position: absolute;
+  border: 2px solid var(--ink);
+  background: var(--pine-900);
+  box-shadow: inset 0 0 0 2px rgba(242, 201, 107, 0.22);
+  color: var(--gold-hi);
+  font-family: var(--font-display);
+  white-space: nowrap;
+  pointer-events: none;
+}
+#gather-prompt {
+  padding: 4px 9px;
+  transform: translate(-50%, -100%);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+}
+#gather-prompt b {
+  color: var(--gold);
+}
+#building-level-dots {
+  padding: 2px 7px 3px;
+  transform: translate(-50%, -50%);
+  color: var(--gold);
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  line-height: 1;
+  text-shadow: 0 2px 0 rgba(3, 8, 5, 0.85);
+}
+#gather-prompt[hidden],
+#building-level-dots[hidden],
+#skip-guidance[hidden] {
+  display: none;
+}
+.inside-rv #gather-prompt,
+.inside-rv #building-level-dots,
+.photo-mode #gather-prompt,
+.photo-mode #building-level-dots {
+  display: none;
+}
+
 #photo-hint {
   position: absolute;
   bottom: 20px;
@@ -581,6 +624,29 @@ button:active {
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.25),
     0 1px 0 rgba(3, 8, 5, 0.5);
+}
+.field-note #skip-guidance {
+  width: auto;
+  margin: 9px 0 0;
+  padding: 1px 0 2px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  clip-path: none;
+  color: var(--parchment-dim);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.field-note #skip-guidance:hover {
+  color: var(--gold-hi);
+  filter: none;
+}
+.field-note #skip-guidance:active {
+  transform: none;
+  box-shadow: none;
 }
 
 .build-wrap {

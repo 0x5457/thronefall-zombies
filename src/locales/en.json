@@ -1,0 +1,17 @@
+{
+  "home": {
+    "kicker": "BLACK PINE · CAMPSITE 07",
+    "title": "PINEFALL",
+    "subtitle": "EMBERS OF THE PINE",
+    "tagline1": "Build the camp by day, hold the RV by night.",
+    "tagline2": "After five nights, rescue arrives.",
+    "start": "New game",
+    "startHint": "DAY 01 · NEW CAMPAIGN",
+    "confirm": "Click again · overwrite",
+    "continue": "Continue",
+    "noSave": "No camp record found",
+    "brokenSave": "Camp record is damaged · new game only",
+    "saveInfo": "Day {{day}} · Camp {{health}}% · {{perks}} perks",
+    "sparkHint": "Tap the screen · sparks rise from the fire"
+  }
+}

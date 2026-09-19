@@ -1,7 +1,8 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { MAP, cameraFocus } from '../src/map.js';
+import { MAP, cameraFocus, LANE_SPAWNS } from '../src/map.js';
 import { walkable, shore } from '../src/world.js';
+import { LANES } from '../src/rules.js';
 test('expanded terrain supports movement beyond old world, but excludes shore and limits', () => {
   assert.equal(MAP.size, 180);
   assert.equal(walkable(-56, -5), true);
@@ -9,6 +10,10 @@ test('expanded terrain supports movement beyond old world, but excludes shore an
   assert.equal(walkable(-64, 0), false);
   assert.equal(walkable(shore(0), 0), false);
   assert.equal(walkable(NaN, 0), false);
+});
+test('lane spawn points stay walkable and in sync with the lane labels', () => {
+  assert.equal(LANE_SPAWNS.length, LANES.length);
+  for (const [x, z] of LANE_SPAWNS) assert.equal(walkable(x, z), true, `${x},${z} is off-map`);
 });
 test('camera preserves camp deadzone and clamps far views to terrain', () => {
   assert.deepEqual(cameraFocus(1, -6, 33, 23), { x: 0, z: 0 });

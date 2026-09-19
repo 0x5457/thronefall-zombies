@@ -4,8 +4,11 @@ import type {
   EnemyId,
   FurnitureId,
   GameState,
+  GuidanceStep,
   WeaponId,
   WeaponModId,
+  WindDir,
+  WindTier,
 } from './rules.js';
 
 export {};
@@ -88,6 +91,21 @@ export interface PinefallStats {
   hidden: number;
   spits: number;
   sieging: number;
+  windDir: WindDir;
+  windTier: WindTier;
+  windX: number;
+  windZ: number;
+  lastSpit: {
+    fromX: number;
+    fromZ: number;
+    total: number;
+    aimX: number;
+    aimZ: number;
+    x: number;
+    z: number;
+    driftX: number;
+    driftZ: number;
+  } | null;
   rating: PinefallRating | null;
   rv: FurnitureId[];
   rvSlots: number;
@@ -97,6 +115,21 @@ export interface PinefallStats {
   playerRange: number;
   radioAlert: string | null;
   windowGlow: number;
+  guidance: GuidanceStep;
+  collecting: boolean;
+  collectCooldown: number;
+  logsRemaining: number;
+  levelDots: number;
+  ghost: {
+    visible: boolean;
+    outline: boolean;
+    x: number;
+    z: number;
+    valid: boolean;
+    reason: string | null;
+    angle: number;
+  } | null;
+  nightPrompted: boolean;
 }
 
 export interface PinefallDiagnostics {
@@ -108,4 +141,5 @@ export interface PinefallDiagnostics {
   readonly stats: PinefallStats;
   startNew(): void;
   continueSave(): boolean;
+  setSpeed(multiplier: number): number;
 }

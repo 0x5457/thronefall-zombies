@@ -31,7 +31,7 @@ interface OfflineRender {
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -61,7 +61,8 @@ try {
   await page.keyboard.press('p');
   await page.waitForFunction(() => window.__pinefall.audio.context === 'running');
   // Build through actual UI/placement, not a test-only sound trigger.
-  await page.click('[data-build="tower"]');
+  // ECO-01: 25 starting wood cannot afford a tower (35); a lantern (10) exercises the same build cue.
+  await page.click('[data-build="lantern"]');
   for (const [x, y] of [
     [720, 390],
     [640, 380],

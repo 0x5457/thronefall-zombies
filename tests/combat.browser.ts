@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -42,6 +42,19 @@ try {
     );
   }
 
+  // ECO-01: the 25-wood opening cannot fund the bench; one full log (3 swings x 10) is needed.
+  await walkTo(10, -7);
+  for (let swing = 0; swing < 3; swing++) {
+    await page.waitForFunction(
+      () => !window.__pinefall.stats.collecting && window.__pinefall.stats.collectCooldown === 0,
+    );
+    const beforeWood = (await state()).wood;
+    await page.keyboard.press('e');
+    await page.waitForFunction((wood) => window.__pinefall.state.wood > wood, beforeWood, {
+      timeout: 5000,
+    });
+  }
+
   // RV loop: the portable workbench is now the gate for weapon unlocks and the nightly mod.
   await walkTo(5.2, -6);
   await walkTo(5.4, 1.6);
@@ -60,8 +73,8 @@ try {
   await page.waitForFunction(() => window.__pinefall.stats.weaponMod === 'power');
   const geared = await stats();
   assert.equal(geared.playerDamage, 3, 'nightly mod raises carbine damage');
-  assert.equal((await state()).wood, 55);
-  assert.equal((await state()).scrap, 4);
+  assert.equal((await state()).wood, 30, '25 start + one log 30 - bench 25');
+  assert.equal((await state()).scrap, 2);
   await page.locator('#leave-rv').click();
   await page.waitForFunction(
     () => !window.__pinefall.stats.inside && !window.__pinefall.stats.transitioning,
@@ -77,7 +90,7 @@ try {
   await page.locator('[data-manual-tab="expedition"]').click();
   const beforeTrip = (await state()).elapsed;
   await page.locator('.manual-card:has-text("山脊中继站") button').click();
-  await page.waitForFunction(() => window.__pinefall.state.scrap === 16);
+  await page.waitForFunction(() => window.__pinefall.state.scrap === 14);
   const trip = await state();
   const spent = trip.elapsed - beforeTrip;
   assert.ok(spent >= 50 && spent < 53, `expedition consumes 50s of daylight (spent ${spent})`);
@@ -86,7 +99,7 @@ try {
   await page.locator('.manual-card:has-text("猎人步枪") button').click();
   await page.waitForFunction(() => window.__pinefall.state.weapon === 'rifle');
   const armed = await state();
-  assert.equal(armed.scrap, 6);
+  assert.equal(armed.scrap, 4, 'ridge haul funds the 10-scrap rifle unlock');
   assert.deepEqual(armed.unlocked, ['carbine', 'rifle']);
   await page.keyboard.press('Escape');
   await page.waitForFunction(
@@ -133,13 +146,13 @@ try {
     window.__pinefall.stats.buildingLevels[0]?.startsWith('fence:2'),
   );
   const upgraded = await state();
-  assert.equal(upgraded.scrap, 2, 'upgrade costs 20 wood + 4 scrap');
+  assert.equal(upgraded.scrap, 0, 'upgrade costs 20 wood + 4 scrap');
   assert.equal(await page.locator('#building-dismantle').isEnabled(), true);
   const woodBefore = upgraded.wood;
   await page.locator('#building-dismantle').click();
   await page.waitForFunction(() => window.__pinefall.stats.buildings === 0);
   assert.equal((await state()).wood, woodBefore + 21, 'dismantle refunds 60% of 35 invested wood');
-  assert.equal((await state()).scrap, 4);
+  assert.equal((await state()).scrap, 2, 'dismantle refunds 60% of the 4 upgrade scrap');
   assert.equal(await page.locator('#building-panel').isVisible(), false);
 
   // The typed wave reaches the lane with walkers, and the day/night views stay readable.

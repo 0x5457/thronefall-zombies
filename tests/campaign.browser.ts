@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  args: ['--no-sandbox'],
+  args: ['--no-sandbox', '--use-angle=vulkan', '--enable-features=Vulkan'],
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -32,10 +32,53 @@ try {
     await page.mouse.down();
     await page.mouse.up();
   }
+  async function takeMill() {
+    const before = await page.evaluate(() => window.__pinefall.state.wood);
+    await page.keyboard.press('Tab');
+    await page.waitForFunction(() => window.__pinefall.stats.manualOpen);
+    await page.locator('[data-manual-tab="expedition"]').click();
+    await page.locator('.manual-card:has-text("旧伐木场") button').click();
+    await page.waitForFunction((wood) => window.__pinefall.state.wood >= wood, before + 35);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(
+      () => !window.__pinefall.stats.manualOpen && !window.__pinefall.state.paused,
+    );
+  }
+  async function walkTo(tx: number, tz: number) {
+    for (let i = 0; i < 220; i++) {
+      const {
+        player: [x, , z],
+      } = await page.evaluate(() => window.__pinefall.stats);
+      if (Math.hypot(tx - x, tz - z) < 0.6) return;
+      const held: string[] = [];
+      if (Math.abs(tx - x) > 0.3) held.push(tx > x ? 'd' : 'a');
+      if (Math.abs(tz - z) > 0.3) held.push(tz > z ? 's' : 'w');
+      for (const key of held) await page.keyboard.down(key);
+      await page.waitForTimeout(80);
+      for (const key of held) await page.keyboard.up(key);
+    }
+    throw new Error(`walkTo failed ${tx},${tz}`);
+  }
+  async function gatherLog() {
+    await walkTo(10, -7);
+    for (let swing = 1; swing <= 3; swing++) {
+      await page.waitForFunction(
+        () => !window.__pinefall.stats.collecting && window.__pinefall.stats.collectCooldown === 0,
+      );
+      await page.keyboard.press('e');
+      await page.waitForFunction((wood) => window.__pinefall.state.wood === wood, 25 + swing * 10, {
+        timeout: 5000,
+      });
+    }
+  }
+  // ECO-01: 25 wood cannot buy two towers (70). The mill haul (+35) plus one full log (+30) fund both.
+  await takeMill();
   await build(-2, -8);
+  await gatherLog();
   await build(8, 2);
   assert.equal((await game()).buildings, 2);
   await page.screenshot({ path: 'artifacts/campaign-preparation.png' });
+  await page.evaluate(() => window.__pinefall.setSpeed(20));
   await page.keyboard.press('n');
   await page.keyboard.press('n');
   assert.equal((await game()).phase, 'night', 'N cannot skip living enemies');
@@ -79,6 +122,8 @@ try {
   assert.deepEqual((await game()).perks, ['marksman']);
   assert.equal((await game()).perkPending, false);
   assert.match((await page.locator('#owned-perks').textContent())!, /林地神射手/);
+  // Back to 1x so the spawn schedule has not already consumed part of the 16-enemy wave.
+  await page.evaluate(() => window.__pinefall.setSpeed(1));
   await page.keyboard.press('n');
   assert.equal((await game()).phase, 'night');
   assert.equal((await game()).remaining, 16);

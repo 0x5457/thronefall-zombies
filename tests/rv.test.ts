@@ -11,6 +11,7 @@ import {
   rvSlots,
   hasFurniture,
   maxMedkits,
+  MEDKIT_CAP,
   setWeaponMod,
   weaponDamage,
   weaponRange,
@@ -27,14 +28,15 @@ test('function slots unlock across days while decoration is available from day o
   const s = newGame();
   assert.equal(rvSlots(s), 1, 'one function slot on the first day');
   assert.equal(installFurniture(s, 'workbench'), true);
-  assert.equal(s.wood, 55);
-  assert.equal(s.scrap, 4);
+  assert.equal(s.wood, 0, 'the bench spends the whole 25 wood opening');
+  assert.equal(s.scrap, 2);
   assert.equal(
     canInstallFurniture(s, 'radio'),
     false,
     'only one function slot before the first night',
   );
   assert.match(furnitureReason(s, 'radio'), /功能槽不足/);
+  s.wood = 10;
   installFurniture(s, 'plant');
   assert.equal(hasFurniture(s, 'plant'), true, 'decor does not compete for function slots');
   advance(s);
@@ -65,15 +67,15 @@ test('installing is gated by daylight and resources; dismantling refunds 60%', (
   s.wood = 80;
   assert.equal(installFurniture(s, 'radio'), true);
   assert.equal(s.wood, 70);
-  assert.equal(s.scrap, 2);
+  assert.equal(s.scrap, 0, 'the 6 starting scrap pays for the radio');
   const night = newGame();
   night.phase = 'night';
   assert.match(furnitureReason(night, 'radio'), /白天/);
   const day1 = newGame();
   installFurniture(day1, 'radio');
   assert.equal(uninstallFurniture(day1, 'radio'), true);
-  assert.equal(day1.wood, 76, '10 wood refunds 6');
-  assert.equal(day1.scrap, 5, '6 scrap refunds 3');
+  assert.equal(day1.wood, 21, '25 start - 10 radio + 6 refund');
+  assert.equal(day1.scrap, 3, '6 start - 6 radio + 3 refund');
   day1.phase = 'night';
   assert.equal(uninstallFurniture(day1, 'plant'), false, 'no dismantling at night');
 });
@@ -83,6 +85,7 @@ test('the medical cabinet raises the kit cap, refills on install and every dawn'
   assert.equal(maxMedkits(s), 2);
   assert.equal(installFurniture(s, 'medcab'), true);
   assert.equal(maxMedkits(s), 3);
+  assert.equal(maxMedkits(s), MEDKIT_CAP, 'MEDKIT_CAP is the authoritative ceiling');
   assert.equal(s.medkits, 3, 'install tops up one kit');
   s.medkits = 1;
   s.playerHp = 40;

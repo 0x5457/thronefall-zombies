@@ -53,8 +53,8 @@ test('reward effects: separate player/tower damage, harvesting, dawn supplies, h
   const wood = s.wood,
     scrap = s.scrap;
   advance(s, true);
-  assert.equal(s.wood - wood, 50);
-  assert.equal(s.scrap - scrap, 9);
+  assert.equal(s.wood - wood, 35, 'dawn pays 25 base + 10 scavenger');
+  assert.equal(s.scrap - scrap, 8, 'dawn pays 5 base + 3 scavenger');
   assert.equal(choosePerk(s, 'scavenger'), false);
   assert.equal(choosePerk(s, 'survivor'), true);
   assert.equal(s.playerHp, 125);

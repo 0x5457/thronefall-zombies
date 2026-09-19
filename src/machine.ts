@@ -20,6 +20,9 @@ export type CampaignEvent =
   | { type: 'CLOSE_HELP' }
   | { type: 'OPEN_MANUAL' }
   | { type: 'CLOSE_MANUAL' }
+  | { type: 'OPEN_CONFIRM' }
+  | { type: 'CLOSE_CONFIRM' }
+  | { type: 'CONFIRM_NIGHT' }
   | { type: 'CAMP_DESTROYED' };
 
 export interface CampaignOptions {
@@ -63,6 +66,10 @@ export function createCampaignMachine(options: CampaignOptions = {}) {
     },
     guards: {
       canStartNight: ({ context }) => active(context) && !context.perkPending,
+      canOpenConfirm: ({ context }) =>
+        active(context) && context.phase === 'day' && !context.perkPending,
+      canConfirmNight: ({ context }) =>
+        !context.over && context.phase === 'day' && !context.perkPending,
       canClear: ({ context }) => active(context) && canClear(),
       isFinalDay: ({ context }) => context.day >= WAVES.length,
       canEnterRV: ({ context }) => dayReady(context) && !context.paused && canEnterRV(context),
@@ -75,6 +82,13 @@ export function createCampaignMachine(options: CampaignOptions = {}) {
     },
     actions: {
       startNight: ({ context }) => {
+        advance(context);
+        onNightStart(context);
+      },
+      // CONFIRM_NIGHT runs while the modal holds `paused`, so release the overlay pause
+      // before rules.advance's active() guard; the transition itself resets the overlay.
+      confirmNight: ({ context }) => {
+        context.paused = false;
         advance(context);
         onNightStart(context);
       },
@@ -133,6 +147,11 @@ export function createCampaignMachine(options: CampaignOptions = {}) {
                     guard: 'canStartNight',
                     actions: 'startNight',
                   },
+                  OPEN_CONFIRM: {
+                    target: '#campaign.overlay.confirm',
+                    guard: 'canOpenConfirm',
+                    actions: 'openDialog',
+                  },
                 },
               },
               interior: {
@@ -187,6 +206,19 @@ export function createCampaignMachine(options: CampaignOptions = {}) {
                 { target: 'paused', guard: 'manualPauseKept', actions: 'keepPaused' },
                 { target: 'none', actions: 'closeDialog' },
               ],
+            },
+          },
+          confirm: {
+            on: {
+              CLOSE_CONFIRM: [
+                { target: 'paused', guard: 'manualPauseKept', actions: 'keepPaused' },
+                { target: 'none', actions: 'closeDialog' },
+              ],
+              CONFIRM_NIGHT: {
+                target: '#campaign.phase.night',
+                guard: 'canConfirmNight',
+                actions: 'confirmNight',
+              },
             },
           },
         },

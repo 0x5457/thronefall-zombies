@@ -1,23 +1,31 @@
 import './style.css';
 import './ui-polish.css';
 import './home.css';
+import './ui-fx.js';
 import * as T from 'three';
-import { cameraFocus } from './map.js';
+import { $, maybe } from './dom.js';
+import { cameraFocus, LANE_SPAWNS } from './map.js';
 import { addOcclusionSilhouette } from './occlusion.js';
 import { createAudio, threatLevel } from './audio.js';
+import { createUiStore, installCommands, installStore } from './ui/store.js';
+import { mountUi } from './ui/App.js';
+import { BuildingViews, type BuildingView } from './building-view.js';
 import { makeInterior, interiorBlocked } from './interior.js';
 import {
   makeWorld,
   character,
   structure,
   walkable,
-  seeded,
   enemyModel,
-  mesh,
   enemyMaterials,
+  setLogState,
+  updateRvGlow,
 } from './world.js';
-import { createTrauma, createHitStop, hitStopFor, killTraumaFor, easeOutBack } from './feel.js';
-import { createRv, updateRvGlow } from './rv.js';
+import type { WorldLog } from './world.js';
+import { mesh } from './gfx.js';
+import { seeded } from './rng.js';
+import { createTrauma, createHitStop, hitStopFor, killTraumaFor } from './feel.js';
+import { radioAlert, refreshInterior } from './rv.js';
 import { startCampaign, phaseValue, overlayValue, isInterior } from './machine.js';
 import { createHome } from './home.js';
 import { applySave, readSave, resetCampaign, saveSummary, writeSave } from './save.js';
@@ -29,20 +37,26 @@ import {
   buy,
   damageCamp,
   overlaps,
+  // BLD-04/BLD-05: rotated footprints for placement, collision and the pre-build walk check.
+  FOOTPRINTS,
+  circleTouchesFootprint,
+  footprintsOverlap,
+  canReach,
   PERKS,
   attackDamage,
-  logYield,
+  GATHER,
+  collectLog,
+  freshLogSwings,
+  guidanceStep,
   DAY_LENGTH,
   ENEMY_TYPES,
   WAVES,
   WEAPONS,
   EXPEDITIONS,
-  LANES,
   applyArmor,
   DASH,
   FLARE,
   MEDKIT_HEAL,
-  MAX_LEVEL,
   REPAIR_WOOD,
   equipWeapon,
   unlockWeapon,
@@ -51,38 +65,48 @@ import {
   damagePlayer,
   playerDown,
   tickSurvival,
-  upgradeCost,
   refundValue,
   upgrade,
   repair,
   wavePlan,
   maxHp,
   useFlare,
+  nightWind,
+  windDrift,
+  windVector,
   siegeGoal,
   rangedGoal,
   revealed,
-  hasFurniture,
   rvSlots,
   weaponDamage,
   weaponRange,
   maxMedkits,
   dawnRating,
+  BUILDING_STATS,
+  towerStats,
+  lanternRadius,
+  lanternSlow,
+  RV_FURNITURE,
+  WEAPON_MODS,
+  furnitureReason,
+  installFurniture,
+  uninstallFurniture,
+  setWeaponMod,
 } from './rules.js';
 import type {
   Building,
   BuildingType,
   EnemyId,
   EnemySpec,
+  Footprint,
   GameState,
   LogNode,
   PerkId,
   PerkSpec,
   SpawnEntry,
   WeaponId,
-  WeaponSpec,
 } from './rules.js';
 import type { Interior } from './interior.js';
-import type { RvGlowHost } from './rv.js';
 import type { CampaignSave } from './save.js';
 import type { PinefallRating } from './global.js';
 
@@ -105,16 +129,14 @@ interface EnemyRecord {
   dying: number;
 }
 
-interface BuildingView {
-  mesh: T.Group;
-  light: T.PointLight | null;
-  growth: number;
-  cooldown: number;
-  hit: number;
-}
-
 interface BuildingWithRadius extends Building {
   r: number;
+}
+
+interface GatherAction {
+  log: WorldLog;
+  time: number;
+  hit: boolean;
 }
 
 interface RvTransition {
@@ -152,6 +174,19 @@ interface SpitRecord {
   to: T.Vector3;
 }
 
+// NGT-06 diagnostics: the last spit keeps its pre-wind aim so tests can prove the drift.
+interface SpitTrace {
+  fromX: number;
+  fromZ: number;
+  total: number;
+  aimX: number;
+  aimZ: number;
+  x: number;
+  z: number;
+  driftX: number;
+  driftZ: number;
+}
+
 interface FlareRecord {
   group: T.Group;
   light: T.PointLight;
@@ -176,22 +211,6 @@ interface NightRun {
   seconds: number;
 }
 
-interface ManualCardOptions {
-  title: string;
-  tag: string;
-  body?: string;
-  stats?: string[];
-  action?: () => void;
-  actionText?: string;
-  disabled?: boolean;
-  disabledText?: string;
-  owned?: boolean;
-}
-
-type ManualTab = 'workshop' | 'expedition' | 'intel';
-
-const $ = <E extends Element = HTMLElement>(selector: string): E =>
-  document.querySelector(selector) as E;
 const loading = $('#loading'),
   loadingBar = $('#loading-progress-bar'),
   loadingPercent = $('#loading-percent'),
@@ -290,44 +309,10 @@ const buildings: BuildingWithRadius[] = [],
   shots: ShotRecord[] = [],
   particles: ParticleRecord[] = [],
   keys = new Set<string>();
-// Authoritative building data lives in `state.buildings`; meshes/lights are a scene-only view map.
+// Authoritative building data lives in `state.buildings`; buildingViews owns the scene side.
 state.buildings = buildings;
-const buildingViews = new Map<number, BuildingView>();
-const viewOf = (b: Building): BuildingView => buildingViews.get(b.id)!;
-function attachBuildingView(b: Building, mesh: T.Group, light: T.PointLight | null = null): void {
-  mesh.userData.building = b;
-  buildingViews.set(b.id, { mesh, light, growth: 0, cooldown: 0, hit: 0 });
-  scene.add(mesh);
-  if (light) scene.add(light);
-}
-function detachBuildingView(b: Building): void {
-  const view = buildingViews.get(b.id);
-  if (!view) return;
-  scene.remove(view.mesh);
-  if (view.light) scene.remove(view.light);
-  buildingViews.delete(b.id);
-}
-function syncBuildingScene(): void {
-  for (const view of buildingViews.values()) {
-    scene.remove(view.mesh);
-    if (view.light) scene.remove(view.light);
-  }
-  buildingViews.clear();
-  for (const b of buildings) {
-    const m = structure(b.type, b.level);
-    m.position.set(b.x, 0, b.z);
-    m.rotation.y = b.angle || 0;
-    m.userData.building = b;
-    let light: T.PointLight | null = null;
-    if (b.type === 'lantern') {
-      light = new T.PointLight('#ffcf7e', 0, 9, 1.5);
-      light.position.set(b.x, 2.6, b.z);
-    }
-    attachBuildingView(b, m, light);
-    const view = viewOf(b);
-    view.growth = 1;
-  }
-}
+const buildingViews = new BuildingViews(scene);
+const viewOf = (b: Building): BuildingView => buildingViews.of(b);
 const raycaster = new T.Raycaster(),
   pointer = new T.Vector2(),
   cursor = new T.Vector3();
@@ -335,10 +320,23 @@ const groundPlane = new T.Plane(new T.Vector3(0, 1, 0), 0),
   v = new T.Vector3();
 let selected: BuildingType | null = null,
   ghost: T.Group | null = null,
+  ghostOutline: T.LineLoop | null = null,
   ghostAngle = 0,
   validPlacement = false,
-  pointerInside = false;
+  placeReason: string | null = null,
+  pointerInside = false,
+  // Last client position: showModal fires pointerleave, so hover is re-checked when a dialog closes.
+  pointerClient = { x: -1, y: -1 };
+// BLD-05 flood-fill cache and epoch: buildings change rarely, ghost cells change per frame.
+let navEpoch = 0,
+  navCache = { key: '', sealed: false };
 let selectedBuilding: BuildingWithRadius | null = null;
+// Gathering action and first-day guidance are session-local; nothing here reaches the save.
+let collecting: GatherAction | null = null,
+  collectCooldown = 0,
+  guidanceSkipped = false,
+  nightHintShown = false,
+  nightPrompted = false;
 let daylight = 1,
   time = 0,
   last = performance.now(),
@@ -354,6 +352,8 @@ let movementTarget: T.Vector3 | null = null,
   spawnQueue: SpawnEntry[] = [],
   dash: DashState | null = null,
   playerInvuln = 0;
+// Test/diagnostic time scale (window.__pinefall.setSpeed). 1 is the shipping game speed.
+let simSpeed = 1;
 // Per-night telemetry feeds the dawn rating; it never changes combat rules.
 let nightRun: NightRun = {
     startHealth: 100,
@@ -369,6 +369,9 @@ let muzzleFlashes = 0,
   knockbacks = 0,
   recoils = 0,
   spitCount = 0;
+// NGT-06: tonight's wind is fixed per night; refresh the shared direction when `day` changes.
+let windDay = 0;
+let lastSpit: SpitTrace | null = null;
 const trauma = createTrauma();
 const hitStop = createHitStop();
 const enemyFlashMaterial = new T.MeshStandardMaterial({
@@ -385,6 +388,19 @@ try {
   /* storage may be blocked */
 }
 const audio = createAudio();
+const uiStore = createUiStore(state);
+installStore(uiStore);
+function pushAudio(): void {
+  uiStore.set({
+    audio: {
+      enabled: audio.settings.enabled,
+      master: audio.settings.master,
+      music: audio.settings.music,
+      sfx: audio.settings.sfx,
+      locked: audio.stats.context === 'locked',
+    },
+  });
+}
 const ghostMaterial = new T.MeshBasicMaterial({
   color: '#ead176',
   wireframe: true,
@@ -393,6 +409,8 @@ const ghostMaterial = new T.MeshBasicMaterial({
   depthWrite: false,
 });
 const sparkMaterial = new T.MeshBasicMaterial({ color: '#ffcf76', transparent: true });
+// Wood chips reuse the particle pool; only the material differs from combat sparks.
+const woodChipMaterial = new T.MeshBasicMaterial({ color: '#c08d52', transparent: true });
 const cube = new T.BoxGeometry(1, 1, 1);
 // Fixed-size pools cover this small camp. Increase pool sizes before adding larger maps/waves.
 const POOL_SIZE: Record<EnemyId, number> = {
@@ -567,13 +585,34 @@ selectionRing.rotation.x = -Math.PI / 2;
 selectionRing.position.y = 0.045;
 selectionRing.visible = false;
 scene.add(selectionRing);
-const rv = createRv({ state, getInterior: () => interior, audio, toast, syncUI });
+// One reusable pulse ring marks the guidance log; never create per-frame meshes.
+const gatherRing = new T.Mesh(
+  new T.RingGeometry(0.95, 1.2, 30),
+  new T.MeshBasicMaterial({
+    color: '#ffe08a',
+    transparent: true,
+    opacity: 0.6,
+    side: T.DoubleSide,
+    depthWrite: false,
+  }),
+);
+gatherRing.rotation.x = -Math.PI / 2;
+gatherRing.position.y = 0.05;
+gatherRing.visible = false;
+scene.add(gatherRing);
+function refreshSuite(): void {
+  refreshInterior(interior, state);
+}
 setLoadingProgress(46, '环境细节已就绪');
+let toastToken = 0;
 function toast(text: string): void {
-  $('#toast').textContent = text;
-  $('#toast').classList.add('show');
+  const token = ++toastToken;
+  uiStore.set({ toast: { text, token, visible: true } });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => {
+    if (uiStore.getSnapshot().toast.token === token)
+      uiStore.set({ toast: { text, token, visible: false } });
+  }, 3200);
 }
 function flashHurt(): void {
   if (motionPreference.matches) return;
@@ -582,89 +621,50 @@ function flashHurt(): void {
   clearTimeout(hurtTimer);
   hurtTimer = setTimeout(() => el.classList.remove('show'), 90);
 }
-function syncShakeUI(): void {
-  const button = $('#shake');
-  button.setAttribute('aria-pressed', String(shakeEnabled));
-  button.title = shakeEnabled ? '打击反馈 · 镜头震动已开启' : '打击反馈 · 镜头震动已关闭';
-}
-$('#shake').addEventListener('click', () => {
+function toggleShake(): void {
   shakeEnabled = !shakeEnabled;
   try {
     localStorage.setItem(SHAKE_STORAGE, String(shakeEnabled));
   } catch {
     /* no persistence */
   }
-  syncShakeUI();
+  uiStore.set({ shakeEnabled });
   toast(shakeEnabled ? '镜头震动已开启。' : '镜头震动已关闭。');
-});
-syncShakeUI();
+}
+uiStore.set({ shakeEnabled });
 function setEnemyMaterial(enemy: EnemyRecord, material: T.Material): void {
   enemy.mesh.traverse((part) => {
     const meshPart = part as T.Mesh;
     if (meshPart.isMesh && meshPart.material !== enemyMaterials.glow) meshPart.material = material;
   });
 }
-function syncPlayerHud(): void {
-  const max = maxHp(state),
-    hp = Math.max(0, state.playerHp);
-  $('#player-hp').style.width = `${(hp / max) * 100}%`;
-  $('#player-hp-text').textContent = String(Math.ceil(hp));
-  $('#player-stamina').style.width = `${state.stamina}%`;
-  $('#weapon-chip').textContent = WEAPONS[state.weapon].name;
-  $('#medkit-chip').textContent = `✚ ${state.medkits}/${maxMedkits(state)}`;
-  const flare = $('#flare-chip');
-  if (state.flareCooldown <= 0) {
-    flare.textContent = '✦ 就绪';
-    flare.className = 'ready';
-  } else {
-    flare.textContent = `✦ ${Math.ceil(state.flareCooldown)}s`;
-    flare.className = 'cooling';
-  }
-}
 function syncUI() {
   audio.update(state, inside, threatLevel(enemies, player.position.x, player.position.z));
-  $('#owned-perks').textContent = state.perks.length
-    ? `专长 · ${state.perks.map((id) => PERKS[id].name).join(' / ')}`
-    : '专长 · 守过首夜后选择';
-  $('#wood').textContent = String(state.wood);
-  $('#scrap').textContent = String(state.scrap);
-  $('#health').textContent = String(Math.ceil(state.health));
-  $('#kills').textContent = String(state.kills);
-  $('#health-bar').style.width = `${state.health}%`;
-  $('#day-label').textContent =
-    `${state.phase === 'day' ? 'DAY' : 'NIGHT'} ${String(state.day).padStart(2, '0')}`;
-  $('#phase-icon').textContent = state.phase === 'day' ? '☀' : '☾';
-  $('#phase-label').textContent = state.paused
-    ? '时光暂停'
-    : state.phase === 'day'
-      ? '午后 · 营地建设'
-      : `守夜 · 剩余敌人 ${remaining + enemies.filter((e) => e.alive).length}`;
-  $('#day-progress').style.width = `${Math.min(100, (state.elapsed / DAY_LENGTH) * 100)}%`;
-  $('#day-progress').style.opacity = String(state.phase === 'day' ? 1 : 0);
-  $('#note-number').textContent = String(state.day).padStart(2, '0');
-  $('#note-title').textContent =
-    state.phase === 'day' ? '天黑之前，先安个家。' : '别让最后一束光熄灭。';
-  $('#note-body').textContent =
-    state.phase === 'day'
-      ? '在空地建起防线。按 Tab 打开营地手册：工坊、远征与战前情报。'
-      : `第 ${state.day} 夜 · 自动射击已就绪，守住房车直到黎明。`;
-  $('#next-phase').innerHTML =
-    state.phase === 'day' ? '迎接夜晚 <span>→</span>' : '等待黎明 <span>→</span>';
-  $('#build-hint').textContent =
-    state.phase === 'night'
-      ? '夜间无法建造 · 守住营地'
-      : selected
-        ? 'R 旋转 · Esc 取消'
-        : '选择建筑 · 点击空地放置';
-  document.querySelectorAll<HTMLButtonElement>('[data-build]').forEach((button) => {
-    button.disabled = inside || !canBuild(state, button.dataset.build!);
-    button.classList.toggle('selected', selected === button.dataset.build);
+  uiStore.set({
+    state,
+    inside,
+    selectedBuild: selected,
+    selectedBuilding,
+    remaining,
+    enemiesAlive: enemies.filter((e) => e.alive).length,
+    radioAlert: radioAlert(state, spawnQueue, nightClock),
+    guidance: { skipped: guidanceSkipped },
   });
-  $('#pause').textContent = state.paused ? '▷' : 'Ⅱ';
-  $('#pause').setAttribute('aria-pressed', String(state.paused));
-  if (selectedBuilding) renderBuildingPanel();
-  rv.updateAlert(spawnQueue, nightClock);
-  syncPlayerHud();
+}
+function pushVitals(): void {
+  const max = maxHp(state);
+  uiStore.setPlayer({
+    hp: Math.max(0, Math.ceil(state.playerHp)),
+    maxHp: max,
+    stamina: Math.round(state.stamina),
+    weaponName: WEAPONS[state.weapon].name,
+    medkits: state.medkits,
+    maxMedkits: maxMedkits(state),
+    flareReady: state.flareCooldown <= 0,
+    flareSeconds: Math.ceil(state.flareCooldown),
+  });
+  const boss = enemies.find((e) => e.alive && e.type === 'alpha');
+  uiStore.setBoss(boss ? { hp: boss.hp, maxHp: boss.maxHp } : null);
 }
 function togglePause(): void {
   if (rvTransition) return;
@@ -692,44 +692,88 @@ function openPerks(): void {
     buildingsLost: nightRun.buildingsLost,
     seconds: Math.round(nightRun.seconds),
   };
-  $('#perk-summary').textContent =
-    `第 ${state.day - 1} 夜已守住 · 评分 ${rating.grade}（${rating.score}）· 击退 ${state.kills} · 营地 −${campLost}% · 耗时 ${Math.round(nightRun.seconds)} 秒。选择期间不消耗准备时间。`;
-  $('#perk-options').replaceChildren(
-    ...(Object.entries(PERKS) as [PerkId, PerkSpec][])
-      .filter(([id]) => !state.perks.includes(id))
-      .map(([id, perk]) => {
-        const button = document.createElement('button');
-        button.dataset.perk = id;
-        const title = document.createElement('strong'),
-          text = document.createElement('span');
-        title.textContent = perk.name;
-        text.textContent = perk.currentText;
-        button.append(title, text);
-        button.addEventListener('click', () => actor.send({ type: 'CHOOSE_PERK', perkId: id }));
-        return button;
-      }),
-  );
-  $<HTMLDialogElement>('#perk-dialog').showModal();
+  uiStore.set({
+    perk: {
+      open: true,
+      summary: `第 ${state.day - 1} 夜已守住 · 评分 ${rating.grade}（${rating.score}）· 击退 ${state.kills} · 营地 −${campLost}% · 耗时 ${Math.round(nightRun.seconds)} 秒。选择期间不消耗准备时间。`,
+      options: (Object.entries(PERKS) as [PerkId, PerkSpec][])
+        .filter(([id]) => !state.perks.includes(id))
+        .map(([id, perk]) => ({ id, name: perk.name, text: perk.currentText })),
+    },
+  });
 }
-$<HTMLDialogElement>('#perk-dialog').addEventListener('cancel', (event) => event.preventDefault());
-$<HTMLDialogElement>('#perk-dialog').addEventListener('close', () => {
-  if (state.perkPending) openPerks();
-});
+// Player probe radius matches the 0.22 collision circle used by blocked().
+const PLAYER_RADIUS = 0.22;
+// BLD-05 goal: the camp heart beside the bonfire (the day-1 respawn point is one step south).
+// The RV door sits in the same courtyard, so the fire covers both without a second probe.
+const CAMP_GOAL = { x: 0.1, z: 4.3 };
+const NAV_CELL = 0.5;
+function clearGhost(): void {
+  if (ghost) scene.remove(ghost);
+  ghost = null;
+  ghostOutline = null;
+  $('#world-label').style.display = 'none';
+}
+// BLD-04: draw the same rotated footprint the collision/placement math uses, not the model box.
+function footprintOutline(fp: Footprint): T.LineLoop {
+  const points: T.Vector3[] = [];
+  if (fp.kind === 'circle') {
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      points.push(new T.Vector3(Math.cos(a) * fp.r, 0, Math.sin(a) * fp.r));
+    }
+  } else {
+    points.push(
+      new T.Vector3(-fp.hx, 0, -fp.hz),
+      new T.Vector3(fp.hx, 0, -fp.hz),
+      new T.Vector3(fp.hx, 0, fp.hz),
+      new T.Vector3(-fp.hx, 0, fp.hz),
+    );
+  }
+  const outline = new T.LineLoop(
+    new T.BufferGeometry().setFromPoints(points),
+    new T.LineBasicMaterial({
+      color: '#efd17c',
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    }),
+  );
+  outline.position.y = 0.01;
+  return outline;
+}
+// T15: a single visibility rule for the ghost preview and its label.
+function ghostPermitted(): boolean {
+  return (
+    !!ghost &&
+    state.phase === 'day' &&
+    !state.paused &&
+    !state.over &&
+    !photoMode &&
+    !homeMode &&
+    !inside &&
+    !rvTransition &&
+    !dialogOpen() &&
+    !(maybe<HTMLDialogElement>('#confirm-dialog')?.open ?? false)
+  );
+}
 function selectBuild(type: BuildingType | null): void {
   if ((inside || rvTransition) && type) return;
   if (selected === type || !type) {
     selected = null;
-    if (ghost) scene.remove(ghost);
-    ghost = null;
-    $('#world-label').style.display = 'none';
+    clearGhost();
     syncUI();
     return;
   }
   if (!canBuild(state, type)) {
+    // T15: a refused selection must not leave the previous ghost behind.
+    selected = null;
+    clearGhost();
     toast(state.phase === 'night' ? '夜色太深了，等天亮再施工。' : '木材不足，靠近倒木按 E 收集。');
+    syncUI();
     return;
   }
-  if (ghost) scene.remove(ghost);
+  clearGhost();
   selected = type;
   ghost = structure(type);
   ghost.traverse((o) => {
@@ -739,6 +783,8 @@ function selectBuild(type: BuildingType | null): void {
       meshPart.castShadow = false;
     }
   });
+  ghostOutline = footprintOutline(FOOTPRINTS[type]);
+  ghost.add(ghostOutline);
   ghost.rotation.y = ghostAngle;
   ghost.visible = false;
   scene.add(ghost);
@@ -747,30 +793,94 @@ function selectBuild(type: BuildingType | null): void {
 function rvCollision(x: number, z: number, padding = 0.4): boolean {
   return Math.abs(x + 1) < 4.7 + padding && Math.abs(z + 1.6) < 1.65 + padding;
 }
-function canPlace(x: number, z: number): boolean {
-  const radius = selected === 'tower' ? 1.5 : selected === 'fence' ? 1.25 : 0.4;
-  return (
-    Math.hypot(x - doorPosition.x, z - doorPosition.z) > radius + 1.3 &&
-    walkable(x, z) &&
-    Math.hypot(x, z) < 18 &&
-    !rvCollision(x, z, radius) &&
-    !overlaps(x, z, obstacles.slice(1), radius) &&
-    !overlaps(x, z, world.trees, radius) &&
-    !overlaps(x, z, buildings, radius)
+// BLD-04: rotated footprint vs camp obstacles, trees and other buildings. `placeRadius`
+// stays as the spacing margin to obstacles/door, but the shape test is no longer a circle.
+function footprintFits(x: number, z: number, type: BuildingType): boolean {
+  const fp = FOOTPRINTS[type],
+    spec = BUILDING_STATS[type],
+    margin = Math.max(0, spec.placeRadius - spec.r);
+  if (
+    !(Math.hypot(x - doorPosition.x, z - doorPosition.z) > spec.placeRadius + 1.3) ||
+    !walkable(x, z) ||
+    !(Math.hypot(x, z) < 18) ||
+    rvCollision(x, z, spec.placeRadius)
+  )
+    return false;
+  if (
+    obstacles
+      .slice(1)
+      .some((o) => circleTouchesFootprint(fp, ghostAngle, x, z, o.x, o.z, o.r + margin)) ||
+    world.trees.some((t) => circleTouchesFootprint(fp, ghostAngle, x, z, t.x, t.z, t.r + margin))
+  )
+    return false;
+  return !buildings.some((b) =>
+    footprintsOverlap(fp, ghostAngle, x, z, FOOTPRINTS[b.type], b.angle, b.x, b.z),
   );
+}
+function canPlace(x: number, z: number): boolean {
+  return !!selected && footprintFits(x, z, selected);
+}
+// BLD-05: would this placement cut the player off from the camp heart? Enemies can break
+// walls, so only the player path matters. Cached per grid cell/angle/building epoch.
+function sealsPlayer(x: number, z: number): boolean {
+  if (!selected) return false;
+  const key = `${selected}|${x}|${z}|${ghostAngle}|${navEpoch}|${buildings.length}|${Math.round(
+    player.position.x / NAV_CELL,
+  )}|${Math.round(player.position.z / NAV_CELL)}`;
+  if (navCache.key === key) return navCache.sealed;
+  const blockers = buildings.map((b) => ({
+    fp: FOOTPRINTS[b.type],
+    angle: b.angle,
+    x: b.x,
+    z: b.z,
+  }));
+  blockers.push({ fp: FOOTPRINTS[selected], angle: ghostAngle, x, z });
+  const staticCircles = obstacles.slice(1).concat(world.trees);
+  const blockedAt = (px: number, pz: number): boolean => {
+    if (!walkable(px, pz) || rvCollision(px, pz, PLAYER_RADIUS)) return true;
+    if (staticCircles.some((o) => Math.hypot(px - o.x, pz - o.z) < o.r + PLAYER_RADIUS))
+      return true;
+    return blockers.some((b) =>
+      circleTouchesFootprint(b.fp, b.angle, b.x, b.z, px, pz, PLAYER_RADIUS),
+    );
+  };
+  const margin = 6,
+    sealed = !canReach(
+      { x: player.position.x, z: player.position.z },
+      CAMP_GOAL,
+      {
+        minX: Math.min(-20, player.position.x - margin),
+        maxX: Math.max(20, player.position.x + margin),
+        minZ: Math.min(-20, player.position.z - margin),
+        maxZ: Math.max(20, player.position.z + margin),
+      },
+      blockedAt,
+      NAV_CELL,
+    );
+  navCache = { key, sealed };
+  return sealed;
 }
 function updateGhost(): void {
   if (!ghost) return;
-  ghost.visible = pointerInside;
-  if (!pointerInside) {
+  if (!ghostPermitted() || !pointerInside) {
+    ghost.visible = false;
     $('#world-label').style.display = 'none';
+    placeReason = null;
     return;
   }
+  ghost.visible = true;
   const x = Math.round(cursor.x * 2) / 2,
     z = Math.round(cursor.z * 2) / 2;
   ghost.position.set(x, 0.04, z);
-  validPlacement = canPlace(x, z) && canBuild(state, selected!);
+  const fits = canPlace(x, z) && canBuild(state, selected!),
+    sealed = fits && sealsPlayer(x, z);
+  validPlacement = fits && !sealed;
+  placeReason = sealed ? '会把自己封死' : fits ? null : '这里无法建造';
   ghostMaterial.color.set(validPlacement ? '#efd17c' : '#cb745c');
+  if (ghostOutline)
+    (ghostOutline.material as T.LineBasicMaterial).color.set(
+      validPlacement ? '#efd17c' : '#cb745c',
+    );
   v.set(x, selected === 'tower' ? 5.7 : 2, z).project(camera);
   const label = $('#world-label');
   label.style.display = 'block';
@@ -778,15 +888,59 @@ function updateGhost(): void {
   label.style.top = `${((1 - v.y) * innerHeight) / 2}px`;
   label.textContent = validPlacement
     ? `${NAMES[selected!]} · ▰ ${COSTS[selected!]} · 点击建造`
-    : '这里无法建造';
+    : placeReason || '这里无法建造';
   label.classList.toggle('invalid', !validPlacement);
 }
-function burst(x: number, y: number, z: number, count = 12): void {
+// World-space guidance/level markers: one reusable ring plus DOM chips projected each frame.
+function updateWorldMarkers(): void {
+  const guideActive = !guidanceSkipped && state.phase === 'day' && guidanceStep(state) !== 'done';
+  const target = collecting?.log ?? (guideActive ? nearestLog(Infinity, true) : null);
+  const prompt = maybe<HTMLElement>('#gather-prompt');
+  if (target && !photoMode) {
+    const pulse = motionPreference.matches ? 0 : Math.sin(time * 4.2) * 0.5 + 0.5;
+    gatherRing.visible = true;
+    gatherRing.position.set(target.x, 0.05, target.z);
+    gatherRing.scale.setScalar(1 + pulse * 0.1);
+    (gatherRing.material as T.MeshBasicMaterial).opacity = 0.5 + pulse * 0.4;
+    if (prompt) {
+      if (!selected) {
+        v.set(target.x, 1.05, target.z).project(camera);
+        prompt.hidden = false;
+        prompt.style.left = `${((v.x + 1) * innerWidth) / 2}px`;
+        prompt.style.top = `${((1 - v.y) * innerHeight) / 2}px`;
+        prompt.textContent = `E 采集木材 · 剩余 ${Math.max(0, target.remaining)}`;
+      } else prompt.hidden = true;
+    }
+  } else {
+    gatherRing.visible = false;
+    if (prompt) prompt.hidden = true;
+  }
+  const dots = maybe<HTMLElement>('#building-level-dots');
+  const showDots = !!selectedBuilding && !photoMode && state.phase === 'day';
+  if (!dots) return;
+  dots.hidden = !showDots;
+  if (showDots && selectedBuilding) {
+    dots.textContent = '●'.repeat(selectedBuilding.level);
+    const y =
+      selectedBuilding.type === 'tower' ? 6.7 : selectedBuilding.type === 'lantern' ? 3.4 : 1.7;
+    v.set(selectedBuilding.x, y, selectedBuilding.z).project(camera);
+    dots.style.left = `${((v.x + 1) * innerWidth) / 2}px`;
+    dots.style.top = `${((1 - v.y) * innerHeight) / 2}px`;
+  }
+}
+function burst(
+  x: number,
+  y: number,
+  z: number,
+  count = 12,
+  material: T.Material = sparkMaterial,
+): void {
   let n = 0;
   for (const p of particles)
     if (p.life <= 0) {
       p.life = 0.5 + random() * 0.7;
       p.mesh.visible = true;
+      p.mesh.material = material;
       p.mesh.position.set(x, y, z);
       p.mesh.scale.setScalar(0.045 + random() * 0.09);
       p.vx = (random() - 0.5) * 3;
@@ -798,88 +952,33 @@ function burst(x: number, y: number, z: number, count = 12): void {
 function place(): void {
   if (inside || !selected || !validPlacement || !buy(state, selected)) return;
   const type = selected,
-    m = structure(type),
-    p = ghost!.position;
-  m.position.set(p.x, 0, p.z);
-  m.rotation.y = ghostAngle;
-  m.scale.setScalar(0.01);
+    p = ghost!.position,
+    spec = BUILDING_STATS[type];
+  // BLD-05: re-check at commit time, not just while hovering.
+  if (sealsPlayer(p.x, p.z)) {
+    toast('会把自己封死，换个位置。');
+    return;
+  }
   const building: BuildingWithRadius = {
     id: state.nextBuildId++,
     type,
     x: p.x,
     z: p.z,
     angle: ghostAngle,
-    r: type === 'tower' ? 1.2 : type === 'fence' ? 1 : 0.35,
+    r: spec.r,
     level: 1,
-    maxHp: type === 'fence' ? 150 : 220,
-    hp: type === 'fence' ? 150 : 220,
+    maxHp: spec.hp,
+    hp: spec.hp,
     invested: { wood: COSTS[type], scrap: 0 },
   };
-  let light: T.PointLight | null = null;
-  if (type === 'lantern') {
-    light = new T.PointLight('#ffcf7e', 0, 9, 1.5);
-    light.position.set(p.x, 2.6, p.z);
-  }
-  attachBuildingView(building, m, light);
+  buildingViews.create(building, 0);
   buildings.push(building);
+  navEpoch++;
   burst(p.x, 0.5, p.z, 23);
   audio.effect('build');
   toast(`${NAMES[type]}建造完成 · −${COSTS[type]} 木材`);
   selectBuild(null);
   syncUI();
-}
-const towerStats = (b: Building): { damage: number; range: number; cooldown: number } => ({
-  damage: 2 + (b.level - 1),
-  range: 12 + (b.level - 1) * 1.6,
-  cooldown: Math.max(0.55, 0.9 - (b.level - 1) * 0.12),
-});
-const lanternRadius = (b: Building): number => 5 + (b.level - 1) * 1.4;
-const lanternSlow = (b: Building): number => Math.max(0.4, 0.55 - (b.level - 1) * 0.07);
-function refitBuilding(b: BuildingWithRadius): void {
-  const view = viewOf(b);
-  const m = structure(b.type, b.level);
-  m.position.set(b.x, 0, b.z);
-  m.rotation.y = view.mesh.rotation.y;
-  m.scale.setScalar(0.6);
-  m.userData.building = b;
-  scene.remove(view.mesh);
-  view.mesh = m;
-  view.growth = 0.4;
-  scene.add(m);
-}
-function renderBuildingPanel(): void {
-  const panel = $('#building-panel'),
-    b = selectedBuilding;
-  if (!b || !buildings.includes(b)) {
-    panel.hidden = true;
-    return;
-  }
-  panel.hidden = false;
-  const day = state.phase === 'day';
-  const cost = upgradeCost(b),
-    refund = refundValue(b);
-  $('#building-name').textContent = NAMES[b.type];
-  $('#building-level').textContent = `Lv.${b.level}`;
-  $('#building-hp').style.width = `${Math.max(0, (b.hp / b.maxHp) * 100)}%`;
-  const stats =
-    b.type === 'tower'
-      ? `伤害 ${towerStats(b).damage} · 射程 ${towerStats(b).range}`
-      : b.type === 'lantern'
-        ? `减速半径 ${lanternRadius(b).toFixed(1)}`
-        : `阻挡单路 · 为火力争取时间`;
-  $('#building-stats').textContent = `${stats} · 耐久 ${Math.ceil(b.hp)} / ${b.maxHp}`;
-  const upgradeBtn = $<HTMLButtonElement>('#building-upgrade');
-  upgradeBtn.textContent =
-    b.level >= MAX_LEVEL ? '已满级' : `升级 Lv.${b.level + 1} · ▰${cost.wood} ⚙${cost.scrap}`;
-  upgradeBtn.disabled =
-    b.level >= MAX_LEVEL || !day || state.wood < cost.wood || state.scrap < cost.scrap;
-  const repairBtn = $<HTMLButtonElement>('#building-repair');
-  repairBtn.textContent = `维修 · ▰${REPAIR_WOOD}`;
-  repairBtn.disabled = !day || b.hp >= b.maxHp || state.wood < REPAIR_WOOD;
-  $<HTMLButtonElement>('#building-dismantle').textContent =
-    `拆除 · 返还 ▰${refund.wood} ⚙${refund.scrap}`;
-  $<HTMLButtonElement>('#building-dismantle').disabled = !day;
-  $('#building-note').textContent = day ? '' : '夜间无法施工、维修或拆除。';
 }
 function selectBuilding(b: BuildingWithRadius | null): void {
   selectedBuilding = b && buildings.includes(b) ? b : null;
@@ -888,7 +987,7 @@ function selectBuilding(b: BuildingWithRadius | null): void {
     selectionRing.position.set(selectedBuilding.x, 0.045, selectedBuilding.z);
     selectBuild(null);
   }
-  renderBuildingPanel();
+  syncUI();
 }
 function buildingAt(object: T.Object3D | null): BuildingWithRadius | null {
   let node: T.Object3D | null = object;
@@ -905,11 +1004,10 @@ function upgradeBuilding(): void {
     toast(state.phase === 'night' ? '夜间无法施工。' : '资源不足，无法升级。');
     return;
   }
-  refitBuilding(b);
+  buildingViews.refit(b);
   burst(b.x, 1, b.z, 18);
   audio.effect('build');
   toast(`${NAMES[b.type]}升级至 Lv.${b.level}`);
-  renderBuildingPanel();
   syncUI();
 }
 function repairBuilding(): void {
@@ -922,7 +1020,6 @@ function repairBuilding(): void {
   burst(b.x, 0.7, b.z, 10);
   audio.effect('build');
   toast(`${NAMES[b.type]}维修完成 · −${REPAIR_WOOD} 木材`);
-  renderBuildingPanel();
   syncUI();
 }
 function dismantleBuilding(): void {
@@ -935,19 +1032,18 @@ function dismantleBuilding(): void {
   const refund = refundValue(b);
   state.wood += refund.wood;
   state.scrap += refund.scrap;
-  detachBuildingView(b);
+  buildingViews.detach(b);
   buildings.splice(buildings.indexOf(b), 1);
+  navEpoch++;
   burst(b.x, 0.7, b.z, 22);
   audio.effect('destroy');
   toast(`已拆除 ${NAMES[b.type]} · 返还 ▰${refund.wood} ⚙${refund.scrap}`);
   selectBuilding(null);
   syncUI();
 }
-$('#building-close').addEventListener('click', () => selectBuilding(null));
-$('#building-upgrade').addEventListener('click', upgradeBuilding);
-$('#building-repair').addEventListener('click', repairBuilding);
-$('#building-dismantle').addEventListener('click', dismantleBuilding);
 function updatePointer(event: PointerEvent): void {
+  pointerClient.x = event.clientX;
+  pointerClient.y = event.clientY;
   pointer.x = (event.clientX / innerWidth) * 2 - 1;
   pointer.y = 1 - (event.clientY / innerHeight) * 2;
   raycaster.setFromCamera(pointer, camera);
@@ -967,6 +1063,10 @@ canvas.addEventListener('pointerdown', (event) => {
   updatePointer(event);
   if (selected) {
     updateGhost();
+    if (!validPlacement && placeReason === '会把自己封死') {
+      toast('会把自己封死，换个位置。');
+      return;
+    }
     place();
     return;
   }
@@ -1041,6 +1141,7 @@ function switchRV(): void {
     if (!interior) interior = makeInterior();
     outsidePosition.copy(player.position);
     outsideRotation = player.rotation.y;
+    cancelGather();
     inside = true;
     interior!.scene.add(player);
     player.position.set(1.02, 0.06, 0.85);
@@ -1051,33 +1152,94 @@ function switchRV(): void {
   keys.clear();
   pointerInside = false;
   $('#app').classList.toggle('inside-rv', inside);
-  $('#interior-panel').hidden = !inside;
-  $('#rv-door').hidden = true;
+  const doorButton = $('#rv-door');
+  if (doorButton) doorButton.hidden = true;
   if (inside) {
-    rv.render();
-    $('#leave-rv').focus();
+    refreshSuite();
+    requestAnimationFrame(() => $('#leave-rv')?.focus());
   } else $('#world').focus();
   resize();
   syncUI();
 }
-$('#rv-door').addEventListener('click', enterOrExit);
-$('#leave-rv').addEventListener('click', enterOrExit);
-$('#rv-lamp').addEventListener('click', () => {
-  if (!inside || rvTransition || state.paused || state.over) return;
-  const on = interior!.toggleLamp();
-  $('#rv-lamp').setAttribute('aria-pressed', String(on));
-  $('#rv-lamp').textContent = `床头灯 · ${on ? '已开启' : '已关闭'}`;
+function toggleLamp(): void {
+  if (!inside || rvTransition || state.paused || state.over || !interior) return;
+  const on = interior.toggleLamp();
+  uiStore.set({ rvLampOn: on });
   toast(on ? '床头灯亮了。' : '床头灯已关闭，窗光仍照亮过道。');
-});
+}
+function refreshLogs(): void {
+  world.logs.forEach((log) => setLogState(log, log.remaining));
+}
+function nearestLog(maxDistance: number, onlyWooded = false): WorldLog | null {
+  let best: WorldLog | null = null,
+    bestDistance = maxDistance;
+  for (const log of world.logs) {
+    if (onlyWooded && log.remaining <= 0) continue;
+    const distance = Math.hypot(player.position.x - log.x, player.position.z - log.z);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = log;
+    }
+  }
+  return best;
+}
+function dialogOpen(): boolean {
+  return (
+    $<HTMLDialogElement>('#manual-dialog').open ||
+    $<HTMLDialogElement>('#help-dialog').open ||
+    $<HTMLDialogElement>('#end-dialog').open ||
+    $<HTMLDialogElement>('#perk-dialog').open ||
+    $<HTMLDialogElement>('#confirm-dialog').open
+  );
+}
+function restoreGatherPose(): void {
+  const body = player.userData.body as T.Group;
+  body.rotation.set(0, 0, 0);
+  body.position.y = 0;
+}
+function cancelGather(): void {
+  if (!collecting) return;
+  collecting = null;
+  restoreGatherPose();
+}
+// FBK-01: the swing settles at hitAt, movement stays locked until the full swing ends.
+function updateGather(dt: number): void {
+  collectCooldown = Math.max(0, collectCooldown - dt);
+  const action = collecting;
+  if (!action) return;
+  if (state.paused || state.over || document.hidden || dialogOpen()) return;
+  action.time += dt;
+  if (!action.hit && action.time >= GATHER.hitAt) {
+    action.hit = true;
+    const amount = collectLog(state, action.log as LogNode);
+    setLogState(action.log, action.log.remaining);
+    audio.effect('chop');
+    burst(action.log.x, 0.55, action.log.z, motionPreference.matches ? 8 : 18, woodChipMaterial);
+    if (amount > 0) toast(`收集木材 +${amount}`);
+    syncUI();
+  }
+  const softness = motionPreference.matches ? 0.3 : 1,
+    body = player.userData.body as T.Group,
+    t = Math.min(1, action.time / GATHER.swing),
+    arc = Math.sin(t * Math.PI);
+  body.rotation.x = arc * 0.34 * softness;
+  body.rotation.y = Math.sin(t * Math.PI * 2) * 0.34 * softness;
+  body.rotation.z = Math.sin(t * Math.PI) * 0.16 * softness;
+  body.position.y = -arc * 0.09 * softness;
+  if (action.time >= GATHER.swing) {
+    collecting = null;
+    collectCooldown = GATHER.cooldown;
+    restoreGatherPose();
+  }
+}
 function collect(): void {
   if (rvTransition || state.paused || state.over) return;
   if (inside || nearDoor()) {
     enterOrExit();
     return;
   }
-  const log = world.logs.find(
-    (log) => Math.hypot(player.position.x - log.x, player.position.z - log.z) < 3,
-  );
+  if (collecting) return;
+  const log = nearestLog(GATHER.reach);
   if (!log) {
     toast('靠近森林边缘的倒木，再按 E 收集。');
     return;
@@ -1086,13 +1248,13 @@ function collect(): void {
     toast('这段倒木已收集完，明天再来。');
     return;
   }
-  const amount = logYield(state);
-  log.remaining--;
-  state.wood += amount;
-  burst(log.x, 0.6, log.z);
-  audio.effect('collect');
-  toast(`收集木材 +${amount}`);
-  syncUI();
+  if (collectCooldown > 0) {
+    toast('稍等一下再砍。');
+    return;
+  }
+  collecting = { log, time: 0, hit: false };
+  dash = null;
+  movementTarget = null;
 }
 function beginNight(): void {
   spawnQueue = wavePlan(state.day);
@@ -1106,6 +1268,10 @@ function beginNight(): void {
     seconds: 0,
   };
   toast(`第 ${state.day} 夜 · ${WAVES[state.day - 1].name}`);
+  if (state.day === 1 && !nightHintShown) {
+    nightHintShown = true;
+    setTimeout(() => toast('站到北径路口，别让它们靠近营地。'), 3600);
+  }
 }
 function transition(): void {
   if (rvTransition) return;
@@ -1126,254 +1292,83 @@ function transition(): void {
   }
   actor.send({ type: 'START_NIGHT' });
 }
-$('#next-phase').addEventListener('click', transition);
+function skipGuidance(): void {
+  guidanceSkipped = true;
+  syncUI();
+}
 function togglePhoto(): void {
   photoMode = !photoMode;
   $('#app').classList.toggle('photo-mode', photoMode);
-  $('#photo-hint').hidden = !photoMode;
+  uiStore.set({ photoMode });
 }
-$('#photo').addEventListener('click', togglePhoto);
-$('#pause').addEventListener('click', togglePause);
 function openHelp(): void {
   actor.send({ type: 'OPEN_HELP' });
-  $<HTMLDialogElement>('#help-dialog').showModal();
   keys.clear();
 }
 function closeHelp(): void {
-  $<HTMLDialogElement>('#help-dialog').close();
-}
-$('#help').addEventListener('click', openHelp);
-$('#help-start').addEventListener('click', closeHelp);
-$('#help-dialog .close').addEventListener('click', closeHelp);
-$<HTMLDialogElement>('#help-dialog').addEventListener('close', () =>
-  actor.send({ type: 'CLOSE_HELP' }),
-);
-$('#restart').addEventListener('click', () => location.reload());
-// ——— Camp manual: workshop, expeditions, pre-night intel ———
-let manualTab: ManualTab = 'workshop';
-function manualCard({
-  title,
-  tag,
-  body,
-  stats,
-  action,
-  actionText,
-  disabled,
-  disabledText,
-  owned,
-}: ManualCardOptions): HTMLElement {
-  const card = document.createElement('section');
-  card.className = `manual-card${owned ? ' owned' : ''}`;
-  const head = document.createElement('div');
-  head.className = 'card-head';
-  const name = document.createElement('strong');
-  name.textContent = title;
-  const label = document.createElement('span');
-  label.className = 'tag';
-  label.textContent = tag;
-  head.append(name, label);
-  card.append(head);
-  const text = document.createElement('p');
-  text.textContent = body as string;
-  card.append(text);
-  if (stats) {
-    const grid = document.createElement('div');
-    grid.className = 'manual-stat-grid';
-    stats.forEach((s) => {
-      const item = document.createElement('span');
-      item.textContent = s;
-      grid.append(item);
-    });
-    card.append(grid);
-  }
-  if (actionText) {
-    const button = document.createElement('button');
-    button.className = action ? 'primary' : 'ghost';
-    button.textContent = actionText;
-    button.disabled = !!disabled;
-    if (action) button.addEventListener('click', action);
-    card.append(button);
-  }
-  if (disabled && disabledText) {
-    const note = document.createElement('p');
-    note.textContent = disabledText;
-    card.append(note);
-  }
-  return card;
-}
-function renderManual() {
-  document
-    .querySelectorAll<HTMLElement>('[data-manual-tab]')
-    .forEach((tab) =>
-      tab.setAttribute('aria-selected', String(tab.dataset.manualTab === manualTab)),
-    );
-  const page = $('#manual-page'),
-    cards: HTMLElement[] = [];
-  if (manualTab === 'workshop') {
-    const bench = hasFurniture(state, 'workbench');
-    for (const [id, weapon] of Object.entries(WEAPONS) as [WeaponId, WeaponSpec][]) {
-      const unlocked = state.unlocked.includes(id),
-        equipped = state.weapon === id;
-      cards.push(
-        manualCard({
-          title: weapon.name,
-          tag: equipped ? '使用中' : unlocked ? '已解锁' : '未解锁',
-          owned: equipped,
-          body: weapon.text,
-          stats: [
-            `伤害 ${weaponDamage(state, id)}`,
-            `射程 ${weaponRange(state, id)}`,
-            `间隔 ${weapon.interval}s`,
-          ],
-          actionText: equipped ? '已装备' : unlocked ? '装备' : '解锁并装备 · ⚙10',
-          disabled:
-            equipped || (!unlocked && (!bench || state.scrap < 10 || state.phase !== 'day')),
-          disabledText:
-            !unlocked && !bench
-              ? '需要便携工作台：进入房车安装后才能解锁武器。'
-              : !unlocked && state.phase !== 'day'
-                ? '只能在白天解锁武器。'
-                : !unlocked && state.scrap < 10
-                  ? '零件不足（需要 ⚙10）· 远征可获得零件。'
-                  : '',
-          action: () => {
-            const ok = unlocked ? equipWeapon(state, id) : unlockWeapon(state, id);
-            if (!ok) {
-              toast('无法更换武器。');
-              return;
-            }
-            audio.effect('build');
-            toast(`${unlocked ? '装备' : '解锁'}武器 · ${weapon.name}`);
-            renderManual();
-            syncUI();
-          },
-        }),
-      );
-    }
-    if (state.phase !== 'day')
-      cards.push(
-        Object.assign(document.createElement('p'), {
-          className: 'empty',
-          textContent: '夜间无法在工坊解锁与更换武器，天亮后再来。',
-        }),
-      );
-  } else if (manualTab === 'expedition') {
-    if (state.phase !== 'day') {
-      cards.push(
-        Object.assign(document.createElement('p'), {
-          className: 'empty',
-          textContent: '远征只能在白天出发。夜晚必须留在营地防守。',
-        }),
-      );
-    } else {
-      for (const trip of EXPEDITIONS) {
-        const done = state.expeditionDay === state.day;
-        const noTime = state.elapsed + trip.time >= DAY_LENGTH;
-        const hurt = state.playerHp <= trip.injury;
-        const reason = done
-          ? '今天已经出发过一次，明天再来。'
-          : noTime
-            ? '剩余白天时间不足，无法完成这次行动。'
-            : hurt
-              ? '生命不足，先恢复再出发。'
-              : '';
-        cards.push(
-          manualCard({
-            title: trip.name,
-            tag: trip.tag,
-            body: trip.text.replace(`耗时 ${trip.time} 秒`, `白天时间 −${trip.time} 秒`),
-            actionText: done ? '今日已完成' : '出发',
-            disabled: !!reason,
-            disabledText: reason,
-            action: () => {
-              if (!expedition(state, trip.id)) {
-                toast('现在无法出发。');
-                return;
-              }
-              audio.effect('collect');
-              toast(`远征归来 · ${trip.name}`);
-              renderManual();
-              syncUI();
-            },
-          }),
-        );
-      }
-    }
-  } else {
-    const wave = WAVES[state.day - 1];
-    const when = state.phase === 'day' ? '今晚' : '当前';
-    cards.push(
-      manualCard({
-        title: `第 ${state.day} 夜 · ${wave.name}`,
-        tag: when,
-        body: wave.lesson,
-        stats: [
-          `木材 ▰${state.wood}`,
-          `零件 ⚙${state.scrap}`,
-          `营地 ${Math.ceil(state.health)}%`,
-          `生命 ${Math.ceil(state.playerHp)}/${maxHp(state)}`,
-          `瞭望塔 ${buildings.filter((b) => b.type === 'tower').length}`,
-          `医疗包 ✚${state.medkits}`,
-        ],
-      }),
-    );
-    if (wave.fog)
-      cards.push(
-        manualCard({
-          title: `浓雾 · 能见度 ${Math.round((1 - wave.fog) * 100)}%`,
-          tag: '环境',
-          body: '灯光与信号弹的照亮范围缩小；潜行者在灯外几乎不可见，腐吐者借雾远程腐蚀建筑。',
-        }),
-      );
-    cards.push(manualCard({ title: '应对建议', tag: '战术', body: wave.advice }));
-    wave.groups.forEach(([type, count, lane, , intent]) => {
-      const def = ENEMY_TYPES[type];
-      cards.push(
-        manualCard({
-          title: `${def.name} ×${count}`,
-          tag: `${LANES[lane]} · ${intent || '来袭'}`,
-          body: `${def.note} · 生命 ${def.hp} · 速度 ${def.speed}${def.armor ? ` · 护甲 ${def.armor}` : ''}`,
-        }),
-      );
-    });
-    if (hasFurniture(state, 'radio')) {
-      for (const card of rv.timelineCards(state.day))
-        cards.push(manualCard({ title: card.title, tag: card.tag, stats: card.rows }));
-    } else {
-      cards.push(
-        manualCard({
-          title: '短波电台',
-          tag: '房车 · 未安装',
-          body: '安装短波电台后，这里会显示今晚的生成时间轴，并在夜战 HUD 标出下一路来敌与倒计时。',
-        }),
-      );
-    }
-  }
-  page.replaceChildren(...cards);
+  actor.send({ type: 'CLOSE_HELP' });
 }
 function openManual(): void {
   if (inside) {
     toast('先离开房车，再查看营地手册。');
     return;
   }
-  if (state.over || rvTransition || $<HTMLDialogElement>('#manual-dialog').open) return;
-  renderManual();
+  if (state.over || rvTransition || overlayValue(actor.getSnapshot()) === 'manual') return;
   actor.send({ type: 'OPEN_MANUAL' });
-  $<HTMLDialogElement>('#manual-dialog').showModal();
 }
 function closeManual(): void {
-  if ($<HTMLDialogElement>('#manual-dialog').open) $<HTMLDialogElement>('#manual-dialog').close();
+  actor.send({ type: 'CLOSE_MANUAL' });
 }
-document.querySelectorAll<HTMLElement>('[data-manual-tab]').forEach((tab) =>
-  tab.addEventListener('click', () => {
-    manualTab = tab.dataset.manualTab as ManualTab;
-    renderManual();
-  }),
-);
-$('#manual-close').addEventListener('click', closeManual);
-$<HTMLDialogElement>('#manual-dialog').addEventListener('close', () =>
-  actor.send({ type: 'CLOSE_MANUAL' }),
-);
+// NGT-05: the day timer expiring opens the pre-night briefing; N and the HUD button still
+// start the night directly. Cancel keeps the flag for the rest of the day so it never re-opens.
+function requestNightConfirm(): void {
+  if (nightPrompted || inside || rvTransition || state.over || state.perkPending) return;
+  const snap = actor.getSnapshot();
+  if (phaseValue(snap) !== 'day' || overlayValue(snap) !== 'none') return;
+  nightPrompted = true;
+  actor.send({ type: 'OPEN_CONFIRM' });
+  keys.clear();
+  movementTarget = null;
+}
+function confirmNight(): void {
+  if (overlayValue(actor.getSnapshot()) !== 'confirm') return;
+  keys.clear();
+  movementTarget = null;
+  actor.send({ type: 'CONFIRM_NIGHT' });
+}
+function cancelNight(): void {
+  if (overlayValue(actor.getSnapshot()) !== 'confirm') return;
+  actor.send({ type: 'CLOSE_CONFIRM' });
+  toast('已返回白天 · 准备好后按 N 或「迎接夜晚」直接开战。');
+}
+function unlockWeaponCommand(id: WeaponId): void {
+  if (!unlockWeapon(state, id)) {
+    toast('无法更换武器。');
+    return;
+  }
+  audio.effect('build');
+  toast(`解锁武器 · ${WEAPONS[id].name}`);
+  syncUI();
+}
+function equipWeaponCommand(id: WeaponId): void {
+  if (!equipWeapon(state, id)) {
+    toast('无法更换武器。');
+    return;
+  }
+  audio.effect('build');
+  toast(`装备武器 · ${WEAPONS[id].name}`);
+  syncUI();
+}
+function runExpeditionCommand(id: string): void {
+  const trip = EXPEDITIONS.find((e) => e.id === id);
+  if (!trip || !expedition(state, id)) {
+    toast('现在无法出发。');
+    return;
+  }
+  audio.effect('collect');
+  toast(`远征归来 · ${trip.name}`);
+  syncUI();
+}
 function cycleWeapon(): void {
   if (state.unlocked.length < 2) {
     toast('在营地手册（Tab）的工坊解锁更多武器。');
@@ -1447,7 +1442,7 @@ function hurtPlayer(amount: number): void {
 addEventListener('keydown', (event) => {
   if (homeMode) return;
   const key = event.key.toLowerCase();
-  if ($<HTMLDialogElement>('#manual-dialog').open) {
+  if (maybe<HTMLDialogElement>('#manual-dialog')?.open) {
     if (key === 'tab') {
       event.preventDefault();
       closeManual();
@@ -1456,9 +1451,10 @@ addEventListener('keydown', (event) => {
   }
   if (
     event.target instanceof HTMLInputElement ||
-    $<HTMLDialogElement>('#help-dialog').open ||
-    $<HTMLDialogElement>('#end-dialog').open ||
-    $<HTMLDialogElement>('#perk-dialog').open
+    maybe<HTMLDialogElement>('#help-dialog')?.open ||
+    maybe<HTMLDialogElement>('#end-dialog')?.open ||
+    maybe<HTMLDialogElement>('#confirm-dialog')?.open ||
+    maybe<HTMLDialogElement>('#perk-dialog')?.open
   )
     return;
   if (
@@ -1506,15 +1502,27 @@ document.addEventListener('visibilitychange', () => {
 });
 function blocked(x: number, z: number): boolean {
   if (inside) return interiorBlocked(x, z);
-  return (
+  if (
     !walkable(x, z) ||
     rvCollision(x, z) ||
     overlaps(x, z, obstacles.slice(1), 0.23) ||
-    overlaps(x, z, world.trees, 0.22) ||
-    overlaps(x, z, buildings, 0.22)
+    overlaps(x, z, world.trees, 0.22)
+  )
+    return true;
+  // BLD-04: the player collides with the same rotated footprint the preview shows.
+  return buildings.some((b) =>
+    circleTouchesFootprint(FOOTPRINTS[b.type], b.angle, b.x, b.z, x, z, PLAYER_RADIUS),
   );
 }
 function movePlayer(dt: number): void {
+  if (collecting) {
+    dash = null;
+    movementTarget = null;
+    player.userData.legs.forEach((leg: T.Object3D) => (leg.rotation.x = 0));
+    marker.position.x = player.position.x;
+    marker.position.z = player.position.z;
+    return;
+  }
   let dx =
     Number(keys.has('d') || keys.has('arrowright')) -
     Number(keys.has('a') || keys.has('arrowleft'));
@@ -1560,16 +1568,11 @@ function movePlayer(dt: number): void {
   marker.position.x = player.position.x;
   marker.position.z = player.position.z;
 }
-const LANE_START: [number, number][] = [
-  [-2, -29],
-  [-28, -0.5],
-  [18, 9],
-];
 function spawn(entry: SpawnEntry): boolean {
   const record = enemyPools[entry.type]!.find((e) => !e.alive);
   if (!record) return false;
   const def = ENEMY_TYPES[entry.type],
-    [x, z] = LANE_START[entry.lane] || LANE_START[0];
+    [x, z] = LANE_SPAWNS[entry.lane] || LANE_SPAWNS[0];
   record.mesh.position.set(x + (random() - 0.5) * 3, 0, z + (random() - 0.5) * 3);
   record.mesh.rotation.set(0, 0, 0);
   record.mesh.userData.body.rotation.x = 0;
@@ -1621,8 +1624,9 @@ function damageBuilding(b: BuildingWithRadius, amount: number): boolean {
   audio.effect('destroy');
   trauma.add(0.5);
   burst(b.x, 1, b.z, 16);
-  detachBuildingView(b);
+  buildingViews.detach(b);
   buildings.splice(buildings.indexOf(b), 1);
+  navEpoch++;
   if (selectedBuilding === b) selectBuilding(null);
   toast(`${NAMES[b.type]}被摧毁了。`);
   return true;
@@ -1633,7 +1637,7 @@ function enemyVisible(e: EnemyRecord): boolean {
   const p = e.mesh.position;
   const lanterns = buildings
     .filter((b) => b.type === 'lantern')
-    .map((b) => ({ x: b.x, z: b.z, radius: lanternRadius(b) }));
+    .map((b) => ({ x: b.x, z: b.z, radius: lanternRadius(b.level) }));
   const flares = flarePool.map((f) => ({ active: f.active, x: f.x, z: f.z, radius: FLARE.radius }));
   return revealed(p.x, p.z, player.position.x, player.position.z, lanterns, flares, currentFog());
 }
@@ -1642,12 +1646,16 @@ function fireSpit(enemy: EnemyRecord, goal: SpitGoal, def: EnemySpec): void {
   const spit = spits.find((s) => s.life <= 0);
   if (!spit) return;
   const p = enemy.mesh.position;
+  const aimX = goal.kind === 'building' ? goal.building.x : player.position.x,
+    aimZ = goal.kind === 'building' ? goal.building.z : player.position.z;
+  // NGT-06: only the horizontal impact point moves; damage and flight speed are unchanged.
+  // The arc interpolation below runs straight to the drifted `to`, so what the player sees is
+  // exactly where the glob lands, and standing still under a crosswind can mean a miss.
+  const flight = Math.hypot(aimX - p.x, aimZ - p.z) / 9;
+  const wind = nightWind(state.day);
+  const drift = windDrift(wind, aimX - p.x, aimZ - p.z, flight);
   spit.from.set(p.x, 0.95, p.z);
-  spit.to.set(
-    goal.kind === 'building' ? goal.building.x : player.position.x,
-    0.8,
-    goal.kind === 'building' ? goal.building.z : player.position.z,
-  );
+  spit.to.set(aimX + drift.x, 0.8, aimZ + drift.z);
   spit.total = Math.max(0.28, spit.from.distanceTo(spit.to) / 9);
   spit.life = spit.total;
   spit.kind = goal.kind;
@@ -1656,12 +1664,37 @@ function fireSpit(enemy: EnemyRecord, goal: SpitGoal, def: EnemySpec): void {
   spit.mesh.position.copy(spit.from);
   spit.mesh.visible = true;
   spitCount++;
+  lastSpit = {
+    fromX: spit.from.x,
+    fromZ: spit.from.z,
+    total: spit.total,
+    aimX,
+    aimZ,
+    x: spit.to.x,
+    z: spit.to.z,
+    driftX: drift.x,
+    driftZ: drift.z,
+  };
 }
 function applySpitHit(spit: SpitRecord): void {
   burst(spit.mesh.position.x, spit.mesh.position.y, spit.mesh.position.z, 4);
   if (spit.kind === 'building') {
     const target = spit.ref;
-    if (target && buildings.includes(target)) damageBuilding(target, spit.damage + 3);
+    // NGT-06: the drifted landing point decides the hit, so a strong crosswind can graze past.
+    if (
+      target &&
+      buildings.includes(target) &&
+      circleTouchesFootprint(
+        FOOTPRINTS[target.type],
+        target.angle,
+        target.x,
+        target.z,
+        spit.to.x,
+        spit.to.z,
+        0.35,
+      )
+    )
+      damageBuilding(target, spit.damage + 3);
     return;
   }
   if (Math.hypot(player.position.x - spit.to.x, player.position.z - spit.to.z) < 1.3)
@@ -1739,7 +1772,7 @@ function inRange(x: number, z: number, range: number, count: number): EnemyRecor
   return list.slice(0, count).map((t) => t.e);
 }
 function towerFire(b: Building, target: EnemyRecord): void {
-  const stats = towerStats(b);
+  const stats = towerStats(b.level);
   const def = ENEMY_TYPES[target.type];
   shotFrom.set(b.x, 4.3, b.z);
   tracer(shotFrom, target);
@@ -1810,10 +1843,10 @@ function combat(dt: number): void {
       const view = viewOf(b);
       view.cooldown -= dt;
       if (view.cooldown > 0) continue;
-      const enemy = inRange(b.x, b.z, towerStats(b).range, 1)[0];
+      const enemy = inRange(b.x, b.z, towerStats(b.level).range, 1)[0];
       if (enemy) {
         towerFire(b, enemy);
-        view.cooldown = towerStats(b).cooldown;
+        view.cooldown = towerStats(b.level).cooldown;
       }
     }
   for (const e of enemies)
@@ -1842,8 +1875,8 @@ function combat(dt: number): void {
         length = Math.hypot(dx, dz);
       let speed = def.speed;
       for (const b of buildings)
-        if (b.type === 'lantern' && Math.hypot(b.x - p.x, b.z - p.z) < lanternRadius(b))
-          speed *= lanternSlow(b);
+        if (b.type === 'lantern' && Math.hypot(b.x - p.x, b.z - p.z) < lanternRadius(b.level))
+          speed *= lanternSlow(b.level);
       for (const flare of flarePool)
         if (flare.active && Math.hypot(flare.x - p.x, flare.z - p.z) < FLARE.radius) {
           e.slow = 0.25;
@@ -1852,7 +1885,10 @@ function combat(dt: number): void {
       if (e.slow > 0) speed *= e.slowFactor;
       e.slow = Math.max(0, e.slow - dt);
       e.attack -= dt;
-      const barrier = buildings.find((b) => Math.hypot(b.x - p.x, b.z - p.z) < b.r + 0.65);
+      // BLD-04: enemies reach the rotated wall shape, not a circle around its center.
+      const barrier = buildings.find((b) =>
+        circleTouchesFootprint(FOOTPRINTS[b.type], b.angle, b.x, b.z, p.x, p.z, 0.65),
+      );
       const playerNear = Math.hypot(p.x - player.position.x, p.z - player.position.z) < 1.1;
       const ranged =
         def.ranged && e.attack <= 0
@@ -1911,50 +1947,25 @@ function combat(dt: number): void {
   if (!remaining && !spawnQueue.length && !enemies.some((e) => e.alive) && state.elapsed > 5)
     transition();
 }
-function updateBossBar(): void {
-  const boss = enemies.find((e) => e.alive && e.type === 'alpha'),
-    bar = $('#boss-bar');
-  if (!boss) {
-    if (!bar.hidden) bar.hidden = true;
-    return;
-  }
-  bar.hidden = false;
-  $('#boss-hp').style.width = `${Math.max(0, (boss.hp / boss.maxHp) * 100)}%`;
-}
 function endGame(): void {
-  if ($<HTMLDialogElement>('#end-dialog').open) return;
+  if (uiStore.getSnapshot().end.open) return;
   audio.update(state, inside);
   audio.effect(state.won ? 'victory' : 'defeat');
   keys.clear();
   movementTarget = null;
   selectBuild(null);
   selectBuilding(null);
-  $('#end-dialog h2').textContent = state.won ? '天亮了，我们守住了。' : '余烬尚未冷却。';
-  $('#end-dialog .eyebrow').textContent = state.won
-    ? 'FIVE NIGHTS · A LIGHT SURVIVES'
-    : 'THE FIRE WILL BURN AGAIN';
-  $('#end-text').textContent = state.won
-    ? `五个夜晚全部守住，累计击退 ${state.kills} 位来袭者。营地耐久 ${Math.ceil(state.health)}%，剩余木材 ${state.wood}。救援终于抵达松林。`
-    : `你守住了 ${state.day - 1} 个夜晚，击退 ${state.kills} 位不速之客。带上经验，再点燃一次营火吧。`;
-  $<HTMLDialogElement>('#end-dialog').showModal();
-}
-$<HTMLDialogElement>('#end-dialog').addEventListener('cancel', (event) => event.preventDefault());
-function syncAudioUI(): void {
-  const settings = audio.settings,
-    locked = audio.stats.context === 'locked';
-  const enabled = settings.enabled && !locked;
-  $('#sound').setAttribute('aria-pressed', String(enabled));
-  $('#sound').setAttribute('aria-label', enabled ? '静音' : '开启音乐与音效');
-  $('#sound').title = enabled ? '静音 · 音量在旁边设置' : '点击开启 8-bit 音乐与音效';
-  $('#audio-status').textContent = !settings.enabled
-    ? '已静音'
-    : locked
-      ? '点击或按键后播放 · 设置自动保存'
-      : '8-bit 原创配乐 · 设置自动保存';
-  for (const key of ['master', 'music', 'sfx'] as const) {
-    $<HTMLInputElement>(`#audio-${key}`).value = String(Math.round(settings[key] * 100));
-    $(`#audio-${key}-value`).textContent = `${Math.round(settings[key] * 100)}%`;
-  }
+  uiStore.set({
+    end: {
+      open: true,
+      won: state.won,
+      eyebrow: state.won ? 'FIVE NIGHTS · A LIGHT SURVIVES' : 'THE FIRE WILL BURN AGAIN',
+      title: state.won ? '天亮了，我们守住了。' : '余烬尚未冷却。',
+      text: state.won
+        ? `五个夜晚全部守住，累计击退 ${state.kills} 位来袭者。营地耐久 ${Math.ceil(state.health)}%，剩余木材 ${state.wood}。救援终于抵达松林。`
+        : `你守住了 ${state.day - 1} 个夜晚，击退 ${state.kills} 位不速之客。带上经验，再点燃一次营火吧。`,
+    },
+  });
 }
 let audioErrorShown = false;
 async function unlockAudio(): Promise<void> {
@@ -1964,7 +1975,7 @@ async function unlockAudio(): Promise<void> {
     if (!audioErrorShown) toast('声音未能开启，请点击 ♫ 重试或检查浏览器声音权限。');
     audioErrorShown = true;
   }
-  syncAudioUI();
+  pushAudio();
 }
 // Browsers require a user gesture. Do not force autoplay or override saved mute.
 for (const eventName of ['pointerdown', 'keydown'] as const)
@@ -1981,17 +1992,16 @@ for (const eventName of ['pointerdown', 'keydown'] as const)
     },
     { capture: true },
   );
-$('#sound').addEventListener('click', () => {
+function toggleSound(): void {
   audio.configure('enabled', audio.stats.context === 'locked' ? true : !audio.settings.enabled);
   if (audio.settings.enabled) void unlockAudio();
-  syncAudioUI();
-});
-for (const key of ['master', 'music', 'sfx'] as const)
-  $<HTMLInputElement>(`#audio-${key}`).addEventListener('input', (event) => {
-    audio.configure(key, Number((event.target as HTMLInputElement).value) / 100);
-    syncAudioUI();
-  });
-syncAudioUI();
+  pushAudio();
+}
+function setAudio(key: 'master' | 'music' | 'sfx', value: number): void {
+  audio.configure(key, value);
+  pushAudio();
+}
+pushAudio();
 const daySun = new T.Color('#fff0ce'),
   nightSun = new T.Color('#92b9dc');
 const daySky = new T.Color('#d4e2e2'),
@@ -2007,13 +2017,7 @@ function ambience(dt: number): void {
   const fog = currentFog();
   moon.intensity = (1 - daylight) * 0.5 * (1 - fog * 0.55);
   world.doorLight.intensity = (1 - daylight) * 7;
-  updateRvGlow(
-    world as unknown as RvGlowHost,
-    state.rv,
-    daylight,
-    interior ? interior.lampOn : true,
-    ambientTime,
-  );
+  updateRvGlow(world.rvGlow, state.rv, daylight, interior ? interior.lampOn : true, ambientTime);
   playerLight.intensity = (1 - daylight) * 9 * (1 - fog * 0.45);
   playerLight.distance = 8 - fog * 3;
   playerLight.position.set(player.position.x, 1.6, player.position.z + 0.3);
@@ -2024,6 +2028,15 @@ function ambience(dt: number): void {
     breath = Math.sin(t * 1.1) * motion;
   world.wind.time.value = t;
   world.wind.strength.value = motion;
+  // NGT-06: reuse the ENV-01 wind channel for gameplay direction; one refresh per campaign day.
+  if (windDay !== state.day) {
+    windDay = state.day;
+    const v = windVector(nightWind(state.day));
+    world.wind.dir.x = v.x;
+    world.wind.dir.z = v.z;
+  }
+  const windX = world.wind.dir.x,
+    windZ = world.wind.dir.z;
   world.waterMat.uniforms.time.value = t;
   world.waterMat.uniforms.day.value = daylight;
   world.fireLight.intensity =
@@ -2032,6 +2045,10 @@ function ambience(dt: number): void {
   world.halo.scale.setScalar(6 + breath * 0.3);
   world.flames.children.forEach((flame, i) => {
     flame.scale.y = 0.65 + Math.sin(t * 6 + i * 2.1) * 0.23 * motion;
+    // NGT-06: campfire flames lean along tonight's wind instead of standing perfectly upright.
+    const lean = flame.scale.y * 0.6;
+    flame.position.x = (flame.userData.baseX as number) + windX * lean;
+    flame.position.z = (flame.userData.baseZ as number) + windZ * lean;
     flame.position.y = 0.4 + flame.scale.y * 0.15;
     flame.rotation.y = t * 0.7 + i;
   });
@@ -2062,6 +2079,9 @@ function ambience(dt: number): void {
       flare.life -= dt;
       flare.light.intensity = flare.life > 0 ? 34 + Math.sin(t * 22) * 9 * motion : 0;
       flare.orb.scale.setScalar(1 + Math.sin(t * 18) * 0.16 * motion);
+      // NGT-06: the flare flame and its light bend downwind, matching the campfire smoke.
+      flare.orb.position.set(windX * 1.1, 0.6, windZ * 1.1);
+      flare.light.position.set(windX * 1.8, 1.2, windZ * 1.8);
       if (flare.life <= 0) {
         flare.active = false;
         flare.group.visible = false;
@@ -2096,32 +2116,19 @@ function ambience(dt: number): void {
   fireflyGeo.attributes.color.needsUpdate = true;
   smoke.forEach((m, i) => {
     const age = (t * 0.16 + i / smoke.length) % 1;
+    // NGT-06: campfire smoke trails along tonight's wind; strong nights visibly press it downwind.
+    const spread = age * 1.7;
     m.position.set(
-      0.1 + age * 1.7 + Math.sin(t * 0.85 + age * 2) * age * 0.5,
+      world.fireAt.x + windX * spread + Math.sin(t * 0.85 + age * 2) * age * 0.5,
       1.1 + age * 4,
-      5.6 - age * 0.45 + Math.sin(t * 0.68) * age * 0.35,
+      world.fireAt.z + windZ * spread + Math.sin(t * 0.68) * age * 0.35,
     );
     m.scale.setScalar(0.13 + age * 0.45);
     m.rotation.y = i + t * 0.1;
     m.material.opacity = Math.sin(age * Math.PI) * 0.09 * motion;
   });
   if (motion && random() < dt * 20) burst(0.1, 0.5, 5.6, 1);
-  for (const b of buildings) {
-    const view = viewOf(b);
-    if (view.growth < 1) {
-      view.growth = Math.min(1, view.growth + dt * 1.5);
-      view.mesh.scale.setScalar(easeOutBack(view.growth));
-    }
-    if (view.hit > 0) {
-      view.hit = Math.max(0, view.hit - dt);
-      view.mesh.rotation.z = Math.sin(time * 46) * 0.03 * (view.hit / 0.16);
-      if (!view.hit) view.mesh.rotation.z = 0;
-    }
-    if (view.light) {
-      view.light.intensity = (4 + (1 - daylight) * 20) * (1 - fog * 0.5);
-      view.light.distance = 9 - fog * 3.5;
-    }
-  }
+  buildingViews.animate(dt, time, daylight, fog);
   for (const s of shots)
     if (s.life > 0) {
       s.life -= dt;
@@ -2237,27 +2244,39 @@ renderer.setAnimationLoop((now) => {
     return;
   }
   if (!state.paused && !state.over && !document.hidden) {
-    time += dt;
-    if (inside) movePlayer(dt);
-    else {
-      state.elapsed += dt;
-      tickSurvival(state, dt);
-      ambience(dt);
-      movePlayer(dt);
-      combat(dt);
-      updateEnemyEffects(dt);
-      if (phaseValue(actor.getSnapshot()) === 'day' && state.elapsed > DAY_LENGTH) transition();
+    // Time-scaled simulation runs in sub-steps so each slice stays within the 0.05s frame clamp.
+    const simDt = dt * simSpeed;
+    const steps = Math.max(1, Math.ceil(simDt / 0.05));
+    const step = simDt / steps;
+    for (let i = 0; i < steps; i++) {
+      time += step;
+      if (inside) movePlayer(step);
+      else {
+        state.elapsed += step;
+        tickSurvival(state, step);
+        ambience(step);
+        movePlayer(step);
+        updateGather(step);
+        combat(step);
+        updateEnemyEffects(step);
+        if (
+          phaseValue(actor.getSnapshot()) === 'day' &&
+          state.elapsed > DAY_LENGTH &&
+          !nightPrompted
+        )
+          requestNightConfirm();
+      }
+      playerInvuln = Math.max(0, playerInvuln - step);
+      if (state.paused || state.over || document.hidden) break;
     }
     uiTimer += dt;
     if (uiTimer > 0.5) {
       syncUI();
       uiTimer = 0;
     }
-  }
-  playerInvuln = Math.max(0, playerInvuln - dt);
+  } else playerInvuln = Math.max(0, playerInvuln - dt);
   player.userData.body.visible = playerInvuln <= 0 || Math.floor(time * 14) % 2 === 0;
-  updateBossBar();
-  syncPlayerHud();
+  pushVitals();
   if (inside) {
     renderer.render(interior!.scene, interior!.camera);
     return;
@@ -2277,18 +2296,24 @@ renderer.setAnimationLoop((now) => {
   sun.target.position.set(cameraCenter.x, 0, cameraCenter.z);
   moon.position.set(cameraCenter.x + 24, 30, cameraCenter.z + 20);
   moon.target.position.set(cameraCenter.x, 0, cameraCenter.z);
-  if (pointerInside && ghost) {
-    raycaster.setFromCamera(pointer, camera);
-    raycaster.ray.intersectPlane(groundPlane, cursor);
+  updateWorldMarkers();
+  // T15: run every frame while a ghost exists so phase/pause/modal changes hide it immediately.
+  if (ghost) {
+    if (pointerInside) {
+      raycaster.setFromCamera(pointer, camera);
+      raycaster.ray.intersectPlane(groundPlane, cursor);
+    }
     updateGhost();
   }
-  const doorButton = $('#rv-door');
-  doorButton.hidden = photoMode || !nearDoor() || state.paused || state.over;
-  if (!doorButton.hidden) {
-    v.copy(doorPosition).setY(1.5).project(camera);
-    doorButton.style.left = `${((v.x + 1) * innerWidth) / 2}px`;
-    doorButton.style.top = `${((1 - v.y) * innerHeight) / 2}px`;
-    doorButton.textContent = state.phase === 'day' ? 'E · 进入房车' : '夜间守营 · 天亮后进入';
+  const doorButton = maybe<HTMLButtonElement>('#rv-door');
+  if (doorButton) {
+    doorButton.hidden = photoMode || !nearDoor() || state.paused || state.over;
+    if (!doorButton.hidden) {
+      v.copy(doorPosition).setY(1.5).project(camera);
+      doorButton.style.left = `${((v.x + 1) * innerWidth) / 2}px`;
+      doorButton.style.top = `${((1 - v.y) * innerHeight) / 2}px`;
+      doorButton.textContent = state.phase === 'day' ? 'E · 进入房车' : '夜间守营 · 天亮后进入';
+    }
   }
   renderer.render(scene, camera);
 });
@@ -2298,6 +2323,7 @@ const actor = startCampaign({
   canClear: () => remaining === 0 && !spawnQueue.length && !enemies.some((e) => e.alive),
   canEnterRV: () => nearDoor(),
   onNightStart: () => {
+    nightPrompted = false;
     beginNight();
     audio.update(state, inside);
     audio.effect('night');
@@ -2305,7 +2331,9 @@ const actor = startCampaign({
     selectBuilding(null);
   },
   onDawn: () => {
-    world.logs.forEach((l) => (l.remaining = 4));
+    nightPrompted = false;
+    world.logs.forEach((l) => (l.remaining = freshLogSwings()));
+    refreshLogs();
     shotTimer = 0;
     toast('天亮了。营地补给已送达，按 Tab 查看工坊与远征。');
     audio.update(state, inside);
@@ -2317,13 +2345,92 @@ const actor = startCampaign({
   onVictory: () => endGame(),
   onDefeat: () => endGame(),
   onPerkChosen: (s, id) => {
-    if ($<HTMLDialogElement>('#perk-dialog').open) $<HTMLDialogElement>('#perk-dialog').close();
+    uiStore.set({ perk: { open: false, summary: '', options: [] } });
     const saved = writeSave(state);
     toast(saved.ok ? `获得专长：${PERKS[id].name}` : `获得专长：${PERKS[id].name} · 存档写入失败`);
     $('#world').focus();
   },
 });
-actor.subscribe(() => syncUI());
+let overlayBefore = 'none';
+actor.subscribe(() => {
+  syncUI();
+  // showModal makes the canvas inert and fires pointerleave; restore the hover preview once
+  // the closing dialog is gone from the DOM (React removes it after this subscription runs).
+  const overlay = overlayValue(actor.getSnapshot());
+  if (overlay === 'none' && overlayBefore !== 'none') {
+    const restore = (): void => {
+      if (!pointerInside && document.elementFromPoint(pointerClient.x, pointerClient.y) === canvas)
+        pointerInside = true;
+    };
+    requestAnimationFrame(() => {
+      restore();
+      if (!pointerInside) setTimeout(restore, 90);
+    });
+  }
+  overlayBefore = overlay;
+});
+mountUi(actor);
+installCommands({
+  selectBuild,
+  selectBuilding,
+  closeBuildingPanel: () => selectBuilding(null),
+  upgradeBuilding,
+  repairBuilding,
+  dismantleBuilding,
+  openManual,
+  closeManual,
+  unlockWeapon: unlockWeaponCommand,
+  equipWeapon: equipWeaponCommand,
+  runExpedition: runExpeditionCommand,
+  choosePerk: (id) => actor.send({ type: 'CHOOSE_PERK', perkId: id }),
+  nextPhase: transition,
+  skipGuidance,
+  togglePause,
+  openHelp,
+  closeHelp,
+  openNightConfirm: requestNightConfirm,
+  confirmNight,
+  cancelNight,
+  restart: () => location.reload(),
+  togglePhoto,
+  toggleShake,
+  toggleSound,
+  setAudio,
+  enterRv: enterOrExit,
+  leaveRv: enterOrExit,
+  rvBuild: (id) => {
+    if (!installFurniture(state, id)) {
+      toast(`无法安装 · ${furnitureReason(state, id) || '未知原因'}`);
+      return;
+    }
+    audio.effect('build');
+    toast(`已安装 ${RV_FURNITURE[id].name}`);
+    refreshSuite();
+    syncUI();
+  },
+  rvDrop: (id) => {
+    if (!uninstallFurniture(state, id)) {
+      toast('只能在白天拆除家具。');
+      return;
+    }
+    const furniture = RV_FURNITURE[id];
+    audio.effect('destroy');
+    toast(
+      `已拆除 ${furniture.name} · 返还 ▰${Math.floor(furniture.wood * 0.6)}${furniture.scrap ? ` ⚙${Math.floor(furniture.scrap * 0.6)}` : ''}`,
+    );
+    refreshSuite();
+    syncUI();
+  },
+  rvMod: (id) => {
+    if (!setWeaponMod(state, state.weaponMod === id ? null : id)) {
+      toast('需要先安装便携工作台。');
+      return;
+    }
+    toast(state.weaponMod ? `今晚改装 · ${WEAPON_MODS[state.weaponMod].name}` : '已取消改装');
+    syncUI();
+  },
+  toggleLamp,
+});
 
 // ——— Title screen entry (ARC-04): new campaign or the last dawn checkpoint ———
 const homeEnabled = new URLSearchParams(location.search).has('home') || !navigator.webdriver;
@@ -2346,8 +2453,13 @@ const home = createHome({
   },
 });
 function clearSession(): void {
+  nightPrompted = false;
   selectBuild(null);
   selectBuilding(null);
+  navEpoch++;
+  navCache = { key: '', sealed: false };
+  cancelGather();
+  collectCooldown = 0;
   keys.clear();
   movementTarget = null;
   shotTimer = 0;
@@ -2358,9 +2470,12 @@ function clearSession(): void {
 function startNewCampaign(): void {
   resetCampaign(state);
   state.logs.forEach((log) => {
-    log.remaining = 4;
+    log.remaining = freshLogSwings();
   });
-  syncBuildingScene();
+  refreshLogs();
+  guidanceSkipped = false;
+  nightHintShown = false;
+  buildingViews.rebuildAll(buildings);
   clearSession();
   enterGame();
   const saved = writeSave(state);
@@ -2368,7 +2483,8 @@ function startNewCampaign(): void {
 }
 function continueCampaign(save: CampaignSave): void {
   applySave(state, save);
-  syncBuildingScene();
+  refreshLogs();
+  buildingViews.rebuildAll(buildings);
   clearSession();
   enterGame();
   toast(`继续第 ${state.day} 天 · 营地 ${Math.ceil(state.health)}%`);
@@ -2385,6 +2501,11 @@ function enterHome(): void {
   homeMode = true;
   $('#app').classList.add('home-mode');
   clearSession();
+  gatherRing.visible = false;
+  const prompt = maybe<HTMLElement>('#gather-prompt');
+  if (prompt) prompt.hidden = true;
+  const dots = maybe<HTMLElement>('#building-level-dots');
+  if (dots) dots.hidden = true;
   const loaded = readSave();
   home.show({
     save: loaded.ok ? saveSummary(loaded.save) : null,
@@ -2417,6 +2538,8 @@ async function boot(): Promise<void> {
   if (homeEnabled) enterHome();
 }
 void boot();
+// Dev-only balance panel; the guarded dynamic import is removed from production builds.
+if (import.meta.env.DEV) void import('./dev-tune.js').then((mod) => mod.mountDevTuner());
 // Read-only diagnostics for browser smoke tests and performance inspection.
 window.__pinefall = {
   get audio() {
@@ -2440,6 +2563,10 @@ window.__pinefall = {
     if (loaded.ok) continueCampaign(loaded.save);
     return loaded.ok;
   },
+  setSpeed: (multiplier: number) => {
+    simSpeed = T.MathUtils.clamp(multiplier, 0.1, 20);
+    return simSpeed;
+  },
   get loading() {
     return { progress: loadingProgress, ready: loading.classList.contains('done') };
   },
@@ -2451,7 +2578,8 @@ window.__pinefall = {
       inside,
       transitioning: !!rvTransition,
       lampOn: interior ? interior.lampOn : null,
-      manualOpen: $<HTMLDialogElement>('#manual-dialog').open,
+      manualOpen: maybe<HTMLDialogElement>('#manual-dialog')?.open ?? false,
+      overlay: overlayValue(actor.getSnapshot()),
       viewZoom: inside ? interior!.camera.zoom : camera.zoom,
       calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -2459,6 +2587,11 @@ window.__pinefall = {
       remaining,
       ambientTime,
       windStrength: world.wind.strength.value,
+      windDir: nightWind(state.day).dir,
+      windTier: nightWind(state.day).tier,
+      windX: world.wind.dir.x,
+      windZ: world.wind.dir.z,
+      lastSpit,
       wireZ: world.lightWire.geometry.attributes.position.getZ(20),
       fireIntensity: world.fireLight.intensity,
       buildings: buildings.length,
@@ -2508,8 +2641,25 @@ window.__pinefall = {
       maxMedkits: maxMedkits(state),
       playerDamage: weaponDamage(state, state.weapon),
       playerRange: weaponRange(state, state.weapon),
-      radioAlert: $('#radio-alert').hidden ? null : $('#radio-alert').textContent,
+      radioAlert: uiStore.getSnapshot().radioAlert,
       windowGlow: world.rvGlow.panes[0].material.opacity,
+      guidance: guidanceStep(state),
+      collecting: collecting !== null,
+      collectCooldown,
+      logsRemaining: world.logs.reduce((n, l) => n + l.remaining, 0),
+      levelDots: selectedBuilding ? selectedBuilding.level : 0,
+      ghost: ghost
+        ? {
+            visible: ghost.visible,
+            outline: !!ghostOutline,
+            x: ghost.position.x,
+            z: ghost.position.z,
+            valid: validPlacement,
+            reason: placeReason,
+            angle: ghostAngle,
+          }
+        : null,
+      nightPrompted,
     };
   },
 };

@@ -1,5 +1,5 @@
 import * as T from 'three';
-import { box, mesh } from './world.js';
+import { box, mesh } from './gfx.js';
 import type { FurnitureKind } from './rules.js';
 
 export interface RvSlot {
