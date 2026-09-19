@@ -2,3 +2,4 @@ node_modules
 dist
 artifacts
 __pycache__
+.vite-hooks/_

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Staged-file checks for Vite+ (rules live in vite.config.ts `staged`).
+# Prefer the project-local CLI; fall back to a globally installed `vp`.
+if [ -x ./node_modules/.bin/vp ]; then
+  exec ./node_modules/.bin/vp staged
+fi
+exec vp staged

@@ -13,5 +13,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
   },
+  staged: {
+    '*.{ts,css,html,json}': 'vp check --fix',
+  },
   base: '/thronefall-zombies/',
 });
