@@ -3,11 +3,15 @@ import { chromium } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 
 const URL = process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/';
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 try {
   await mkdir('artifacts', { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(URL);
   await page.waitForSelector('#loading.done', { timeout: 60000 });
 
@@ -26,14 +30,23 @@ try {
 
   // The tutorial night still plays out with the real spawn plan and combat feedback.
   await page.keyboard.press('n');
-  await page.waitForFunction(() => window.__pinefall.stats.muzzleFlashes > 0, null, { timeout: 90000 });
+  await page.waitForFunction(() => window.__pinefall.stats.muzzleFlashes > 0, null, {
+    timeout: 90000,
+  });
   await page.waitForFunction(() => window.__pinefall.stats.deaths >= 1, null, { timeout: 90000 });
   const stats = await page.evaluate(() => window.__pinefall.stats);
   assert.equal(stats.fog, 0, 'night 1 has no fog');
   assert.equal(stats.hidden, 0, 'nothing is hidden on a clear night');
   assert.ok(stats.enemyTypes.walker > 0, 'night 1 spawns walkers');
-  assert.ok(!stats.enemyTypes.spitter && !stats.enemyTypes.stalker, 'new types stay in later nights');
+  assert.ok(
+    !stats.enemyTypes.spitter && !stats.enemyTypes.stalker,
+    'new types stay in later nights',
+  );
   await page.screenshot({ path: 'artifacts/nights-first-night.png' });
   assert.deepEqual(errors, []);
-  console.log('PASS: intel explains the night lesson/intents; night 1 runs on the real plan with no new-type leakage');
-} finally { await browser.close(); }
+  console.log(
+    'PASS: intel explains the night lesson/intents; night 1 runs on the real plan with no new-type leakage',
+  );
+} finally {
+  await browser.close();
+}

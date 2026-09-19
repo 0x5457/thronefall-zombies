@@ -7,7 +7,13 @@ import { PERKS, WAVES, active, advance, choosePerk, dayReady, newGame } from './
 const noop = () => {};
 
 export function perkAvailable(s, id) {
-  return !s.over && s.phase === 'day' && s.perkPending && Object.hasOwn(PERKS, id) && !s.perks.includes(id);
+  return (
+    !s.over &&
+    s.phase === 'day' &&
+    s.perkPending &&
+    Object.hasOwn(PERKS, id) &&
+    !s.perks.includes(id)
+  );
 }
 
 export function createCampaignMachine(options = {}) {
@@ -54,11 +60,23 @@ export function createCampaignMachine(options = {}) {
         onPerkChosen(context, event.perkId);
       },
       defeat: ({ context }) => onDefeat(context),
-      pause: ({ context }) => { context.manualPause = true; context.paused = true; },
-      resume: ({ context }) => { context.manualPause = false; context.paused = false; },
-      openDialog: ({ context }) => { context.paused = true; },
-      closeDialog: ({ context }) => { context.paused = false; },
-      keepPaused: ({ context }) => { context.paused = true; },
+      pause: ({ context }) => {
+        context.manualPause = true;
+        context.paused = true;
+      },
+      resume: ({ context }) => {
+        context.manualPause = false;
+        context.paused = false;
+      },
+      openDialog: ({ context }) => {
+        context.paused = true;
+      },
+      closeDialog: ({ context }) => {
+        context.paused = false;
+      },
+      keepPaused: ({ context }) => {
+        context.paused = true;
+      },
     },
   }).createMachine({
     id: 'campaign',
@@ -77,7 +95,11 @@ export function createCampaignMachine(options = {}) {
               outdoor: {
                 on: {
                   ENTER_RV: { target: 'interior', guard: 'canEnterRV' },
-                  START_NIGHT: { target: '#campaign.phase.night', guard: 'canStartNight', actions: 'startNight' },
+                  START_NIGHT: {
+                    target: '#campaign.phase.night',
+                    guard: 'canStartNight',
+                    actions: 'startNight',
+                  },
                 },
               },
               interior: {
@@ -147,25 +169,28 @@ export function startCampaign(options = {}) {
   return actor;
 }
 
-export const phaseValue = snapshot => {
+export const phaseValue = (snapshot) => {
   const value = snapshot.value?.phase;
   if (!value) return null;
   return typeof value === 'object' ? Object.keys(value)[0] : value;
 };
 
-export const overlayValue = snapshot => snapshot.value?.overlay ?? 'none';
+export const overlayValue = (snapshot) => snapshot.value?.overlay ?? 'none';
 
-export const isInterior = snapshot => snapshot.value?.phase?.day === 'interior';
+export const isInterior = (snapshot) => snapshot.value?.phase?.day === 'interior';
 
-export const effectivelyPaused = snapshot => overlayValue(snapshot) !== 'none' || phaseValue(snapshot) === 'dawn';
+export const effectivelyPaused = (snapshot) =>
+  overlayValue(snapshot) !== 'none' || phaseValue(snapshot) === 'dawn';
 
 export function assertPhaseSync(snapshot) {
   const s = snapshot.context;
   const phase = phaseValue(snapshot);
   if (phase === 'day' || phase === 'dawn') {
     if (s.phase !== 'day') throw new Error(`machine ${phase} but state.phase=${s.phase}`);
-    if (phase === 'dawn' && !s.perkPending) throw new Error('machine dawn but state has no pending perk');
-    if (phase === 'dawn' && !s.paused) throw new Error('machine dawn but the day clock is not frozen');
+    if (phase === 'dawn' && !s.perkPending)
+      throw new Error('machine dawn but state has no pending perk');
+    if (phase === 'dawn' && !s.paused)
+      throw new Error('machine dawn but the day clock is not frozen');
     return;
   }
   if (phase === 'night') {

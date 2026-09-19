@@ -7,22 +7,41 @@ export const SAVE_KEY = 'pinefall.campaign.current';
 export const SAVE_BACKUP_KEY = 'pinefall.campaign.backup';
 
 const SCALAR_FIELDS = [
-  'day', 'elapsed', 'wood', 'scrap', 'health', 'playerHp', 'stamina', 'staminaDelay',
-  'medkits', 'kills', 'weapon', 'unlocked', 'perks', 'expeditionDay', 'flareCooldown',
-  'rv', 'weaponMod', 'nextBuildId',
+  'day',
+  'elapsed',
+  'wood',
+  'scrap',
+  'health',
+  'playerHp',
+  'stamina',
+  'staminaDelay',
+  'medkits',
+  'kills',
+  'weapon',
+  'unlocked',
+  'perks',
+  'expeditionDay',
+  'flareCooldown',
+  'rv',
+  'weaponMod',
+  'nextBuildId',
 ];
 const ARRAY_FIELDS = ['unlocked', 'perks', 'rv'];
 const MIGRATIONS = {};
 
 function storageOrNull() {
-  try { return globalThis.localStorage ?? null; } catch { return null; }
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function campaignPayload(state) {
   const data = {};
   for (const key of SCALAR_FIELDS) data[key] = state[key];
-  data.buildings = state.buildings.map(b => ({ ...b, invested: { ...b.invested } }));
-  data.logs = state.logs.map(l => ({ ...l }));
+  data.buildings = state.buildings.map((b) => ({ ...b, invested: { ...b.invested } }));
+  data.logs = state.logs.map((l) => ({ ...l }));
   return { version: SAVE_VERSION, savedAt: Date.now(), phase: state.phase, state: data };
 }
 
@@ -32,13 +51,26 @@ export function isValidSave(save) {
   const s = save.state;
   if (!s || typeof s !== 'object') return false;
   if (!Number.isFinite(s.day) || s.day < 1 || s.day > WAVES.length) return false;
-  if (!Number.isFinite(s.wood) || !Number.isFinite(s.scrap) || !Number.isFinite(s.health)) return false;
-  if (!Number.isFinite(s.playerHp) || !Number.isFinite(s.medkits) || !Number.isFinite(s.kills)) return false;
+  if (!Number.isFinite(s.wood) || !Number.isFinite(s.scrap) || !Number.isFinite(s.health))
+    return false;
+  if (!Number.isFinite(s.playerHp) || !Number.isFinite(s.medkits) || !Number.isFinite(s.kills))
+    return false;
   if (!WEAPONS[s.weapon]) return false;
   for (const field of ARRAY_FIELDS) if (!Array.isArray(s[field])) return false;
   if (!Array.isArray(s.buildings) || !Array.isArray(s.logs)) return false;
-  if (!s.buildings.every(b => b && ['fence', 'tower', 'lantern'].includes(b.type) && Number.isFinite(b.x) && Number.isFinite(b.z) && Number.isFinite(b.hp))) return false;
-  if (!s.logs.every(l => l && typeof l.id === 'string' && Number.isFinite(l.remaining))) return false;
+  if (
+    !s.buildings.every(
+      (b) =>
+        b &&
+        ['fence', 'tower', 'lantern'].includes(b.type) &&
+        Number.isFinite(b.x) &&
+        Number.isFinite(b.z) &&
+        Number.isFinite(b.hp),
+    )
+  )
+    return false;
+  if (!s.logs.every((l) => l && typeof l.id === 'string' && Number.isFinite(l.remaining)))
+    return false;
   return true;
 }
 
@@ -54,15 +86,27 @@ function migrate(save) {
 
 function parseSlot(raw) {
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return { corrupt: true }; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { corrupt: true };
+  }
 }
 
 export function readSave(storage = storageOrNull()) {
   if (!storage) return { ok: false, reason: 'storage' };
-  let current = null, backup = null;
-  try { current = parseSlot(storage.getItem(SAVE_KEY)); backup = parseSlot(storage.getItem(SAVE_BACKUP_KEY)); }
-  catch { return { ok: false, reason: 'storage' }; }
-  for (const [slot, recovered] of [[current, false], [backup, true]]) {
+  let current = null,
+    backup = null;
+  try {
+    current = parseSlot(storage.getItem(SAVE_KEY));
+    backup = parseSlot(storage.getItem(SAVE_BACKUP_KEY));
+  } catch {
+    return { ok: false, reason: 'storage' };
+  }
+  for (const [slot, recovered] of [
+    [current, false],
+    [backup, true],
+  ]) {
     if (!slot || slot.corrupt) continue;
     const candidate = slot.version === SAVE_VERSION ? slot : migrate(slot);
     if (!candidate) return { ok: false, reason: 'version' };
@@ -75,20 +119,25 @@ export function readSave(storage = storageOrNull()) {
 
 export function writeSave(state, storage = storageOrNull()) {
   if (!storage) return { ok: false, reason: 'storage' };
-  if (state.over || state.phase !== 'day' || state.perkPending) return { ok: false, reason: 'phase' };
+  if (state.over || state.phase !== 'day' || state.perkPending)
+    return { ok: false, reason: 'phase' };
   try {
     const previous = storage.getItem(SAVE_KEY);
     if (previous) storage.setItem(SAVE_BACKUP_KEY, previous);
     storage.setItem(SAVE_KEY, JSON.stringify(campaignPayload(state)));
     return { ok: true };
-  } catch { return { ok: false, reason: 'quota' }; }
+  } catch {
+    return { ok: false, reason: 'quota' };
+  }
 }
 
 // Reset in place so main.js keeps its references to the state, building and log arrays.
 export function resetCampaign(state) {
-  const buildings = state.buildings, logs = state.logs;
+  const buildings = state.buildings,
+    logs = state.logs;
   Object.assign(state, newGame());
-  state.buildings = buildings; buildings.length = 0;
+  state.buildings = buildings;
+  buildings.length = 0;
   state.logs = logs;
   state.paused = false;
   state.manualPause = false;
@@ -98,16 +147,24 @@ export function resetCampaign(state) {
 export function applySave(state, save) {
   resetCampaign(state);
   for (const key of SCALAR_FIELDS) if (key in save.state) state[key] = save.state[key];
-  state.buildings.push(...save.state.buildings.map(b => ({ ...b, invested: { ...b.invested } })));
+  state.buildings.push(...save.state.buildings.map((b) => ({ ...b, invested: { ...b.invested } })));
   for (const log of state.logs) {
-    const saved = save.state.logs.find(l => l.id === log.id);
+    const saved = save.state.logs.find((l) => l.id === log.id);
     if (saved) log.remaining = saved.remaining;
   }
-  state.over = false; state.won = false; state.paused = false; state.manualPause = false;
+  state.over = false;
+  state.won = false;
+  state.paused = false;
+  state.manualPause = false;
   return true;
 }
 
 export function saveSummary(save) {
   if (!save) return null;
-  return { day: save.state.day, health: Math.ceil(save.state.health), perks: save.state.perks.length, savedAt: save.savedAt };
+  return {
+    day: save.state.day,
+    health: Math.ceil(save.state.health),
+    perks: save.state.perks.length,
+    savedAt: save.savedAt,
+  };
 }

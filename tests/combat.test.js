@@ -1,18 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  newGame, applyArmor, wavePlan, waveSize, WAVES, ENEMY_TYPES, WEAPONS, DASH, FLARE,
-  unlockWeapon, equipWeapon, damagePlayer, playerDown, tickSurvival, useFlare, heal, maxHp,
-  upgrade, repair, refundValue, upgradeCost, expedition, EXPEDITIONS, MAX_LEVEL, dayReady,
+  newGame,
+  applyArmor,
+  wavePlan,
+  waveSize,
+  WAVES,
+  ENEMY_TYPES,
+  WEAPONS,
+  DASH,
+  FLARE,
+  unlockWeapon,
+  equipWeapon,
+  damagePlayer,
+  playerDown,
+  tickSurvival,
+  useFlare,
+  heal,
+  maxHp,
+  upgrade,
+  repair,
+  refundValue,
+  upgradeCost,
+  expedition,
+  EXPEDITIONS,
+  MAX_LEVEL,
+  dayReady,
 } from '../src/rules.js';
 
 test('armor reduces damage unless the weapon penetrates it; reduction is capped', () => {
   const brute = ENEMY_TYPES.brute;
-  assert.ok(applyArmor(2, brute.armor, WEAPONS.carbine.armorPen) < applyArmor(6, brute.armor, WEAPONS.rifle.armorPen) / 3 * 1.05);
-  assert.equal(applyArmor(10, 0, .5), 10);
-  assert.equal(applyArmor(10, 5, 0), 10 * (1 - .7), 'reduction never exceeds the cap');
+  assert.ok(
+    applyArmor(2, brute.armor, WEAPONS.carbine.armorPen) <
+      (applyArmor(6, brute.armor, WEAPONS.rifle.armorPen) / 3) * 1.05,
+  );
+  assert.equal(applyArmor(10, 0, 0.5), 10);
+  assert.equal(applyArmor(10, 5, 0), 10 * (1 - 0.7), 'reduction never exceeds the cap');
   assert.equal(applyArmor(10, 1, 1), 10);
-  assert.equal(applyArmor(10, -3, .2), 10);
+  assert.equal(applyArmor(10, -3, 0.2), 10);
 });
 
 test('wave plan matches wave sizes, keeps group lanes and spaces later groups apart', () => {
@@ -24,16 +49,21 @@ test('wave plan matches wave sizes, keeps group lanes and spaces later groups ap
       assert.ok(entry.lane >= 0 && entry.lane < 3);
       assert.ok(entry.at > 0);
     }
-    for (let i = 1; i < plan.length; i++) assert.ok(plan[i].at >= plan[i - 1].at, 'spawns stay ordered');
+    for (let i = 1; i < plan.length; i++)
+      assert.ok(plan[i].at >= plan[i - 1].at, 'spawns stay ordered');
     const sources = WAVES[day - 1].groups;
     sources.forEach(([type, count, lane], group) => {
-      const matches = plan.filter(e => e.type === type && e.lane === lane);
+      const matches = plan.filter((e) => e.type === type && e.lane === lane);
       assert.equal(matches.length, count);
-      if (group > 0) assert.ok(Math.min(...matches.map(e => e.at)) - plan[0].at >= 6, 'later groups breathe');
+      if (group > 0)
+        assert.ok(Math.min(...matches.map((e) => e.at)) - plan[0].at >= 6, 'later groups breathe');
     });
   }
-  assert.ok(wavePlan(5).some(e => e.type === 'alpha'));
-  assert.deepEqual(wavePlan(1).map(e => e.type), Array(10).fill('walker'));
+  assert.ok(wavePlan(5).some((e) => e.type === 'alpha'));
+  assert.deepEqual(
+    wavePlan(1).map((e) => e.type),
+    Array(10).fill('walker'),
+  );
 });
 
 test('weapon unlock costs scrap, equips the new gun, and equip only accepts unlocked ids', () => {
@@ -74,7 +104,8 @@ test('player damage, down penalty and survival ticks are bounded', () => {
   assert.equal(s.playerHp, 100);
   assert.equal(s.medkits, 1);
   assert.equal(heal(s), false, 'full health refuses to waste a kit');
-  s.stamina = 50; s.staminaDelay = 0;
+  s.stamina = 50;
+  s.staminaDelay = 0;
   tickSurvival(s, 1);
   assert.equal(s.stamina, 50 + DASH.regen);
   tickSurvival(s, 100);
@@ -85,15 +116,23 @@ test('player damage, down penalty and survival ticks are bounded', () => {
   assert.equal(useFlare(s), false);
   tickSurvival(s, 3);
   assert.equal(s.flareCooldown, FLARE.cooldown - 3);
-  const paused = newGame(); paused.paused = true;
+  const paused = newGame();
+  paused.paused = true;
   tickSurvival(paused, 5);
   assert.equal(paused.stamina, 100);
 });
 
 test('building upgrade tracks invested resources and dismantling refunds 60%', () => {
   const s = newGame();
-  s.wood = 500; s.scrap = 500;
-  const building = { type: 'tower', level: 1, hp: 220, maxHp: 220, invested: { wood: 35, scrap: 0 } };
+  s.wood = 500;
+  s.scrap = 500;
+  const building = {
+    type: 'tower',
+    level: 1,
+    hp: 220,
+    maxHp: 220,
+    invested: { wood: 35, scrap: 0 },
+  };
   assert.equal(upgrade(s, building), true);
   assert.equal(building.level, 2);
   assert.equal(building.maxHp, 320);
@@ -105,7 +144,9 @@ test('building upgrade tracks invested resources and dismantling refunds 60%', (
   assert.equal(building.level, 3);
   assert.equal(upgrade(s, building), false, 'three levels is the cap');
   assert.equal(MAX_LEVEL, 3);
-  const poor = newGame(); poor.wood = 0; poor.scrap = 0;
+  const poor = newGame();
+  poor.wood = 0;
+  poor.scrap = 0;
   assert.equal(upgrade(poor, { level: 1, hp: 1, maxHp: 1, invested: {} }), false);
   assert.deepEqual(upgradeCost({ level: 1 }), { wood: 20, scrap: 4 });
   assert.deepEqual(upgradeCost({ level: 2 }), { wood: 40, scrap: 8 });
@@ -129,18 +170,21 @@ test('repair works in daylight only and respects the engineer perk', () => {
 
 test('expeditions are once per day, cost daylight, and can injure the scout', () => {
   const s = newGame();
-  const station = EXPEDITIONS.find(e => e.id === 'station');
+  const station = EXPEDITIONS.find((e) => e.id === 'station');
   assert.equal(expedition(s, 'station'), true);
   assert.equal(s.expeditionDay, 1);
   assert.equal(s.elapsed, station.time);
   assert.equal(s.scrap, 8 + station.scrap);
   assert.equal(s.playerHp, 100 - station.injury);
   assert.equal(expedition(s, 'mill'), false, 'one trip per day');
-  const hurt = newGame(); hurt.playerHp = 10;
+  const hurt = newGame();
+  hurt.playerHp = 10;
   assert.equal(expedition(hurt, 'station'), false, 'cannot march while badly hurt');
-  const late = newGame(); late.elapsed = 100;
+  const late = newGame();
+  late.elapsed = 100;
   assert.equal(expedition(late, 'station'), false, 'needs enough daylight left');
   assert.equal(expedition(late, 'mill'), true, 'a short trip still fits');
-  const night = newGame(); night.phase = 'night';
+  const night = newGame();
+  night.phase = 'night';
   assert.equal(expedition(night, 'mill'), false);
 });

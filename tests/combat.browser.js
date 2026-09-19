@@ -3,41 +3,55 @@ import { chromium } from '@playwright/test';
 import { OrthographicCamera, Vector3 } from 'three';
 import { mkdir } from 'node:fs/promises';
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(process.env.GAME_URL || 'http://localhost:5173/thronefall-zombies/');
   await page.waitForSelector('#loading.done', { timeout: 60000 });
   await mkdir('artifacts', { recursive: true });
   const state = () => page.evaluate(() => window.__pinefall.state);
   const stats = () => page.evaluate(() => window.__pinefall.stats);
-  const camera = new OrthographicCamera(-23 * 1.44, 23 * 1.44, 23, -23, .1, 260);
-  camera.position.set(2, 46, 37); camera.lookAt(0, 0, -.3); camera.updateMatrixWorld();
+  const camera = new OrthographicCamera(-23 * 1.44, 23 * 1.44, 23, -23, 0.1, 260);
+  camera.position.set(2, 46, 37);
+  camera.lookAt(0, 0, -0.3);
+  camera.updateMatrixWorld();
   const clickWorld = async (x, z) => {
     const p = new Vector3(x, 0, z).project(camera);
     await page.mouse.click((p.x + 1) * 720, (1 - p.y) * 500);
   };
   async function walkTo(tx, tz) {
     for (let i = 0; i < 220; i++) {
-      const { player: [x, , z] } = await page.evaluate(() => window.__pinefall.stats);
-      if (Math.hypot(tx - x, tz - z) < .6) return;
+      const {
+        player: [x, , z],
+      } = await page.evaluate(() => window.__pinefall.stats);
+      if (Math.hypot(tx - x, tz - z) < 0.6) return;
       const held = [];
-      if (Math.abs(tx - x) > .3) held.push(tx > x ? 'd' : 'a');
-      if (Math.abs(tz - z) > .3) held.push(tz > z ? 's' : 'w');
+      if (Math.abs(tx - x) > 0.3) held.push(tx > x ? 'd' : 'a');
+      if (Math.abs(tz - z) > 0.3) held.push(tz > z ? 's' : 'w');
       for (const key of held) await page.keyboard.down(key);
       await page.waitForTimeout(80);
       for (const key of held) await page.keyboard.up(key);
     }
-    throw new Error(`walkTo failed ${tx},${tz}: ${JSON.stringify(await page.evaluate(() => window.__pinefall.stats.player))}`);
+    throw new Error(
+      `walkTo failed ${tx},${tz}: ${JSON.stringify(await page.evaluate(() => window.__pinefall.stats.player))}`,
+    );
   }
 
   // RV loop: the portable workbench is now the gate for weapon unlocks and the nightly mod.
   await walkTo(5.2, -6);
   await walkTo(5.4, 1.6);
-  await walkTo(.7, 1.5);
+  await walkTo(0.7, 1.5);
   await page.keyboard.press('e');
-  await page.waitForFunction(() => window.__pinefall.stats.inside && !window.__pinefall.stats.transitioning, null, { timeout: 15000 });
+  await page.waitForFunction(
+    () => window.__pinefall.stats.inside && !window.__pinefall.stats.transitioning,
+    null,
+    { timeout: 15000 },
+  );
   await page.waitForSelector('[data-rv-install="workbench"]');
   await page.screenshot({ path: 'artifacts/combat-rv-slots.png' });
   await page.locator('[data-rv-install="workbench"]').click();
@@ -49,7 +63,11 @@ try {
   assert.equal((await state()).wood, 55);
   assert.equal((await state()).scrap, 4);
   await page.locator('#leave-rv').click();
-  await page.waitForFunction(() => !window.__pinefall.stats.inside && !window.__pinefall.stats.transitioning, null, { timeout: 15000 });
+  await page.waitForFunction(
+    () => !window.__pinefall.stats.inside && !window.__pinefall.stats.transitioning,
+    null,
+    { timeout: 15000 },
+  );
 
   // Camp manual: expedition funds the workshop, then the rifle is unlocked and equipped.
   await page.keyboard.press('Tab');
@@ -71,7 +89,9 @@ try {
   assert.equal(armed.scrap, 6);
   assert.deepEqual(armed.unlocked, ['carbine', 'rifle']);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !window.__pinefall.stats.manualOpen && !window.__pinefall.state.paused);
+  await page.waitForFunction(
+    () => !window.__pinefall.stats.manualOpen && !window.__pinefall.state.paused,
+  );
   assert.equal((await state()).paused, false, 'closing the manual resumes the day');
 
   // Active abilities: dash spends stamina, flare starts its cooldown, medkit heals once.
@@ -79,7 +99,10 @@ try {
   await page.keyboard.press('Shift');
   await page.waitForTimeout(360);
   const dashed = await stats();
-  assert.ok(Math.hypot(dashed.player[0] - before[0], dashed.player[2] - before[2]) > .8, 'dash moved the player');
+  assert.ok(
+    Math.hypot(dashed.player[0] - before[0], dashed.player[2] - before[2]) > 0.8,
+    'dash moved the player',
+  );
   assert.ok(dashed.stamina < 100, 'dash spent stamina');
   await page.keyboard.press('q');
   await page.waitForFunction(() => window.__pinefall.stats.flareActive);
@@ -100,9 +123,15 @@ try {
   await page.waitForFunction(() => window.__pinefall.stats.selectedBuilding === 'fence');
   assert.equal(await page.locator('#building-panel').isVisible(), true);
   await page.screenshot({ path: 'artifacts/combat-building-panel.png' });
-  assert.equal(await page.locator('#building-repair').isDisabled(), true, 'full structure needs no repair');
+  assert.equal(
+    await page.locator('#building-repair').isDisabled(),
+    true,
+    'full structure needs no repair',
+  );
   await page.locator('#building-upgrade').click();
-  await page.waitForFunction(() => window.__pinefall.stats.buildingLevels[0]?.startsWith('fence:2'));
+  await page.waitForFunction(() =>
+    window.__pinefall.stats.buildingLevels[0]?.startsWith('fence:2'),
+  );
   const upgraded = await state();
   assert.equal(upgraded.scrap, 2, 'upgrade costs 20 wood + 4 scrap');
   assert.equal(await page.locator('#building-dismantle').isEnabled(), true);
@@ -126,4 +155,6 @@ try {
   await page.keyboard.press('h');
   assert.deepEqual(errors, [], 'no page errors');
   console.log(JSON.stringify({ result: 'PASS', trip, armed, night, errors }, null, 2));
-} finally { await browser.close(); }
+} finally {
+  await browser.close();
+}

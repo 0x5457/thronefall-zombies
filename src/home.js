@@ -1,5 +1,10 @@
 // Title screen (ARC-04 entry): giant logo over the live camp, start/continue, fire interaction.
-const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+};
 
 export function createHome({ onStart, onContinue, onSpark, onPointer, onLeave }) {
   const root = el('section');
@@ -28,7 +33,9 @@ export function createHome({ onStart, onContinue, onSpark, onPointer, onLeave })
   const startLabel = start.querySelector('span');
   const cont = root.querySelector('#home-continue');
   const info = root.querySelector('#home-save-info');
-  let hasSave = false, confirmUntil = 0, confirmTimer;
+  let hasSave = false,
+    confirmUntil = 0,
+    confirmTimer;
 
   function resetConfirm() {
     clearTimeout(confirmTimer);
@@ -36,7 +43,7 @@ export function createHome({ onStart, onContinue, onSpark, onPointer, onLeave })
     start.classList.remove('confirm');
     startLabel.textContent = '开始新游戏';
   }
-  start.addEventListener('click', event => {
+  start.addEventListener('click', (event) => {
     event.stopPropagation();
     if (hasSave && performance.now() > confirmUntil) {
       confirmUntil = performance.now() + 3000;
@@ -48,12 +55,15 @@ export function createHome({ onStart, onContinue, onSpark, onPointer, onLeave })
     resetConfirm();
     onStart();
   });
-  cont.addEventListener('click', event => { event.stopPropagation(); if (hasSave) onContinue(); });
-  root.addEventListener('pointerdown', event => {
+  cont.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (hasSave) onContinue();
+  });
+  root.addEventListener('pointerdown', (event) => {
     if (event.target.closest('button')) return;
     onSpark?.();
   });
-  root.addEventListener('pointermove', event => onPointer?.(event.clientX, event.clientY));
+  root.addEventListener('pointermove', (event) => onPointer?.(event.clientX, event.clientY));
   root.addEventListener('pointerleave', () => onLeave?.());
   document.body.append(root);
 
@@ -64,11 +74,18 @@ export function createHome({ onStart, onContinue, onSpark, onPointer, onLeave })
       cont.disabled = !hasSave;
       info.textContent = hasSave
         ? `第 ${save.day} 天 · 营地 ${save.health}% · ${save.perks} 项专长`
-        : broken ? '营地记录损坏 · 只能开始新游戏' : '没有找到营地记录';
+        : broken
+          ? '营地记录损坏 · 只能开始新游戏'
+          : '没有找到营地记录';
       root.hidden = false;
       root.classList.add('shown');
     },
-    hide() { root.hidden = true; root.classList.remove('shown'); },
-    get visible() { return !root.hidden; },
+    hide() {
+      root.hidden = true;
+      root.classList.remove('shown');
+    },
+    get visible() {
+      return !root.hidden;
+    },
   };
 }

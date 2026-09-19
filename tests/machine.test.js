@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startCampaign, phaseValue, overlayValue, isInterior, assertPhaseSync, perkAvailable } from '../src/machine.js';
+import {
+  startCampaign,
+  phaseValue,
+  overlayValue,
+  isInterior,
+  assertPhaseSync,
+  perkAvailable,
+} from '../src/machine.js';
 import { PERKS, WAVES, choosePerk, damageCamp, newGame } from '../src/rules.js';
 
 test('campaign starts in day.outdoor with machine and rules in sync', () => {
@@ -17,14 +24,21 @@ test('campaign starts in day.outdoor with machine and rules in sync', () => {
 test('START_NIGHT enters night and resets the day clock through rules', () => {
   const s = newGame();
   const starts = [];
-  const actor = startCampaign({ state: s, onNightStart: state => starts.push({ day: state.day, phase: state.phase }) });
+  const actor = startCampaign({
+    state: s,
+    onNightStart: (state) => starts.push({ day: state.day, phase: state.phase }),
+  });
   s.elapsed = 90;
   actor.send({ type: 'START_NIGHT' });
   const snap = actor.getSnapshot();
   assert.equal(phaseValue(snap), 'night');
   assert.equal(s.phase, 'night');
   assert.equal(s.elapsed, 0, 'rules.advance owns the clock reset');
-  assert.deepEqual(starts, [{ day: 1, phase: 'night' }], 'scene hook runs after the rules mutation');
+  assert.deepEqual(
+    starts,
+    [{ day: 1, phase: 'night' }],
+    'scene hook runs after the rules mutation',
+  );
   assertPhaseSync(snap);
   actor.stop();
 });
@@ -42,7 +56,11 @@ test('START_NIGHT is rejected inside the RV, while paused, with a pending perk, 
   actor.send({ type: 'PAUSE' });
   actor.send({ type: 'START_NIGHT' });
   assert.equal(phaseValue(actor.getSnapshot()), 'day');
-  assert.equal(actor.getSnapshot().context.phase, 'day', 'rules phase untouched when the transition is rejected');
+  assert.equal(
+    actor.getSnapshot().context.phase,
+    'day',
+    'rules phase untouched when the transition is rejected',
+  );
   actor.stop();
 
   actor = startCampaign();
@@ -61,8 +79,13 @@ test('START_NIGHT is rejected inside the RV, while paused, with a pending perk, 
 
 test('clearing a night enters dawn, then CHOOSE_PERK advances the day through rules', () => {
   const s = newGame();
-  const dawns = [], perks = [];
-  const actor = startCampaign({ state: s, onDawn: state => dawns.push(state.day), onPerkChosen: (state, id) => perks.push([state.day, id]) });
+  const dawns = [],
+    perks = [];
+  const actor = startCampaign({
+    state: s,
+    onDawn: (state) => dawns.push(state.day),
+    onPerkChosen: (state, id) => perks.push([state.day, id]),
+  });
   actor.send({ type: 'START_NIGHT' });
   actor.send({ type: 'CLEARED' });
   let snap = actor.getSnapshot();
@@ -106,7 +129,7 @@ test('clearing the fifth night ends in victory with won and over set', () => {
   const s = newGame();
   s.day = WAVES.length;
   const victories = [];
-  const actor = startCampaign({ state: s, onVictory: state => victories.push(state.won) });
+  const actor = startCampaign({ state: s, onVictory: (state) => victories.push(state.won) });
   actor.send({ type: 'START_NIGHT' });
   actor.send({ type: 'CLEARED' });
   const snap = actor.getSnapshot();
@@ -121,7 +144,7 @@ test('clearing the fifth night ends in victory with won and over set', () => {
 test('CAMP_DESTROYED only ends the run when the camp is actually down', () => {
   const s = newGame();
   const defeats = [];
-  const actor = startCampaign({ state: s, onDefeat: state => defeats.push(state.day) });
+  const actor = startCampaign({ state: s, onDefeat: (state) => defeats.push(state.day) });
   actor.send({ type: 'CAMP_DESTROYED' });
   assert.equal(phaseValue(actor.getSnapshot()), 'day', 'a healthy camp ignores the event');
   damageCamp(s, 100);
@@ -224,7 +247,8 @@ test('perkAvailable agrees with rules.choosePerk for every perk and a bogus id',
   base.perkPending = true;
   const clone = () => ({ ...base, perks: [...base.perks] });
   for (const id of [...Object.keys(PERKS), 'nope']) {
-    const machineView = clone(), rulesView = clone();
+    const machineView = clone(),
+      rulesView = clone();
     assert.equal(perkAvailable(machineView, id), choosePerk(rulesView, id), `agreement for ${id}`);
   }
   base.perkPending = false;
