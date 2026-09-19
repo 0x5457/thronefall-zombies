@@ -11,7 +11,9 @@
 - 存档校验：`src/save.ts` 用 `zod@4.6.5` schema 校验不可信 JSON，替代手写字段检查，保留版本拒绝/双槽回退/不覆写语义。
 - 验证：`vp check` 全绿（47 文件格式、39 文件 lint/类型 0 错误）；`vp test` 11 文件 56/56；`vp build` 通过（772.71 kB / gzip 218.00 kB；zod 前 687.75 / 193.76，+85.0 kB raw / +24.2 kB gzip，>500 kB 提示仍在）；13 个浏览器测试在 TS 代码上全 PASS（11 个对生产预览，`audio`/`occlusion` 按既有约定需 5173 dev 服务做动态模块导入）。迁移为行为不变重构，无画面改动，未新存截图。
 - CI：新增 `.github/workflows/ci.yml`（Node 24：`npm run check` + `npm test` + `npm run build`）；deploy workflow Node 22→24。工作流尚未推送运行。
-- 遗留：`vp staged`/git hooks 未启用；`devEngines` 放宽为 `npm >=11`（vp 迁移生成时固定 npm 12.0.2，本机 npm 11 会 EBADDEVENGINES 拒绝安装）；`audio`/`occlusion` 浏览器测试依赖 dev server 的源码模块路径。
+- 浏览器测试统一入口：`npm run test:browser [filter]`（`scripts/browser-tests.ts` 顺序执行 `tests/*.browser.ts`，按环境变量 `GAME_URL` 指向服务；`audio`/`occlusion` 需 5173 dev）。已用 `home` 过滤实测 PASS。
+- Git 钩子：`vp hooks enable` 已启用，`.vite-hooks/pre-commit`（提交时运行 `vp staged` → `vp check --fix`）；`.vite-hooks/_` 已加入 `.gitignore`。提交 `edb6d36` 实测钩子触发正常。
+- 遗留：`devEngines` 放宽为 `npm >=11`（vp 迁移生成时固定 npm 12.0.2，本机 npm 11 会 EBADDEVENGINES 拒绝安装）；`audio`/`occlusion` 浏览器测试依赖 dev server 的源码模块路径。
 
 ## 夜间有题 NGT-01/02/03/04（本轮，VERIFY）
 - 状态：`VERIFY`（数据、行为与浏览器验证通过；五夜全程实战与观感待用户确认）。

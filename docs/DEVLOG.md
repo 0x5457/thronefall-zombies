@@ -246,3 +246,8 @@
 - 用户日常使用验收后 TOL-01 转 DONE；CI 工作流尚未推送运行。
 - `vp staged`/git hooks 未启用；`zod/mini` 可作为体积优化备选。
 - `audio`/`occlusion` 浏览器测试仍依赖 dev server 动态模块路径（非本轮引入，未扩大修复范围）。
+
+## 2026-09-19 · 工具链补充：浏览器测试入口 + 提交钩子
+- 新增 `scripts/browser-tests.ts` 与 `npm run test:browser [filter]`：顺序执行全部 `tests/*.browser.ts` 并汇总 PASS/FAIL（`GAME_URL` 透传；`audio`/`occlusion` 仍按既有约定需要 5173 dev 服务）。以 `home` 过滤实测通过。
+- 启用 `vp staged` 提交钩子：`vite.config.ts` 增加 `staged: { '*.{ts,css,html,json}': 'vp check --fix' }`；`.vite-hooks/pre-commit` 优先用项目内 `vp`，回退全局；`.vite-hooks/_` 加入 `.gitignore`。该补充提交自身触发钩子并完成检查。
+- 验证：`vp hooks status` 显示 dispatcher 已装、preference enabled；`vp staged` 对 4 个匹配文件执行 `vp check --fix`；`npm run check`、`vp test`、`vp build` 仍全绿。
